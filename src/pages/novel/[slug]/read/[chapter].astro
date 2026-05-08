@@ -1,0 +1,302 @@
+---
+import Layout from '../../../../layouts/Layout.astro';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Allowed HTML tags for SSR content (preserve semantic formatting for TTS)
+const ALLOWED_TAGS = new Set(['em', 'strong', 'b', 'i', 'br', 'span', 'sub', 'sup']);
+
+/** Keep only ALLOWED_TAGS (semantic inline), strip everything else */
+function sanitizeHtml(html: string): string {
+  return html.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (match, tagName: string) => {
+    const lower = tagName.toLowerCase();
+    if (ALLOWED_TAGS.has(lower)) return match;
+    if (lower === 'p') return match.startsWith('</') ? '\n\n' : '';
+    if (lower === 'br') return '\n';
+    if (lower === 'h1' || lower === 'h2' || lower === 'h3') return match.startsWith('</') ? '\n\n' : '';
+    return '';
+  });
+}
+
+/** Split HTML body into clean paragraphs, stripping duplicate titles and credits */
+function splitIntoParagraphs(html: string, chapterTitle?: string): string[] {
+  const sanitized = sanitizeHtml(html);
+  const titleNorm = (chapterTitle ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+  return sanitized
+    .split(/\n\n+/)
+    .map(p => p.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(p => {
+      if (!p) return false;
+      const textOnly = p.replace(/<[^>]*>/g, '').trim();
+      if (!textOnly) return false;
+      const normalized = textOnly.toLowerCase().replace(/\s+/g, ' ');
+      // Strip duplicate title paragraph
+      if (titleNorm && (normalized === titleNorm || normalized.startsWith(titleNorm))) return false;
+      // Strip "Chapter N" standalone lines
+      if (/^chapter\s+\d+$/i.test(textOnly)) return false;
+      // Strip translator/editor credits
+      if (/^\s*(Translator|Editor|TL|ED)\s*[:：]/i.test(textOnly)) return false;
+      return true;
+    });
+}
+
+/** Detect language from text content */
+function detectLang(text: string): string {
+  const sample = text.slice(0, 200);
+  const cjk = sample.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g);
+  if (cjk && cjk.length > sample.length * 0.3) return 'zh';
+  return 'en';
+}
+
+// Generate static paths: chapter 1 for each novel
+export function getStaticPaths() {
+  const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+  const data = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+  
+  const paths: Array<{ params: { slug: string; chapter: string } }> = [];
+  
+  for (const novel of data.novels) {
+    // Generate chapter 1 page for each novel
+    paths.push({ params: { slug: novel.slug, chapter: '1' } });
+  }
+  
+  return paths;
+}
+
+// Get params
+const { slug, chapter } = Astro.params;
+const chapterNum = parseInt(chapter!, 10);
+
+// Load novel metadata
+const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
+
+if (!novel) {
+  return Astro.redirect('/404');
+}
+
+// Load chapter data from bundle
+const bundleSize = novel.bundleSize || 200;
+const volumeIndex = Math.ceil(chapterNum / bundleSize);
+const volFile = `vol-${String(volumeIndex).padStart(3, '0')}.json`;
+const volPath = path.join(process.cwd(), `public/novels/${slug}/${volFile}`);
+
+let chapterData: { id: number; title: string; body: string } | null = null;
+let prevChapter: number | null = null;
+let nextChapter: number | null = null;
+
+try {
+  if (fs.existsSync(volPath)) {
+    const vol = JSON.parse(fs.readFileSync(volPath, 'utf-8'));
+    chapterData = vol.chapters?.find((ch: { id: number }) => ch.id === chapterNum) ?? null;
+  }
+} catch {
+  // Fall through to error state
+}
+
+if (!chapterData) {
+  return Astro.redirect(`/novel/${slug}`);
+}
+
+// Calculate prev/next
+if (chapterNum > 1) prevChapter = chapterNum - 1;
+if (chapterNum < novel.totalChapters) nextChapter = chapterNum + 1;
+
+// Process content
+const paragraphs = splitIntoParagraphs(chapterData.body, chapterData.title);
+const plainText = paragraphs.map(p => p.replace(/<[^>]*>/g, '')).join(' ');
+const lang = detectLang(plainText);
+const articleBodySnippet = plainText.slice(0, 500);
+const wordCount = lang === 'zh' 
+  ? (plainText.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g)?.length ?? 0)
+  : plainText.split(/\s+/).length;
+
+// JSON-LD structured data
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: `${chapterData.title} - ${novel.title}`,
+  name: `${chapterData.title} - ${novel.title}`,
+  inLanguage: lang,
+  isAccessibleForFree: true,
+  wordCount,
+  articleBody: articleBodySnippet,
+  author: {
+    '@type': 'Person',
+    name: novel.authors?.[0] || 'Unknown Author',
+  },
+  speakable: {
+    '@type': 'SpeakableSpecification',
+    cssSelector: ['#chapter-content', '#chapter-content [data-speakable]'],
+  },
+};
+---
+
+<Layout
+  title={`${chapterData.title} - ${novel.title}`}
+  canonicalPath={`/novel/${slug}/read/${chapter}`}
+  description={`Read ${chapterData.title} of ${novel.title}. ${novel.totalChapters} chapters available.`}
+  jsonLd={jsonLd}
+>
+  <main class="chapter-page">
+    <article
+      id="chapter-content"
+      role="main"
+      itemscope
+      itemtype="https://schema.org/Article"
+      aria-label={`${novel.title} - ${chapterData.title}`}
+      lang={lang}
+    >
+      <header class="chapter-header">
+        <a href={`/novel/${slug}`} class="novel-link" itemprop="name">{novel.title}</a>
+        <h1 itemprop="headline">{chapterData.title}</h1>
+      </header>
+
+      <div class="chapter-body" itemprop="articleBody" data-speakable="true">
+        {paragraphs.map(para => (
+          <p set:html={para} />
+        ))}
+      </div>
+
+      <nav class="chapter-nav" aria-label="Chapter navigation">
+        {prevChapter && (
+          <a href={`/novel/${slug}/read?ch=${prevChapter}`} rel="prev" class="nav-link nav-prev">
+            ← Previous Chapter
+          </a>
+        )}
+        <a href={`/novel/${slug}/read?ch=${chapterNum}`} class="nav-link nav-reader">
+          Open in Reader
+        </a>
+        {nextChapter && (
+          <a href={`/novel/${slug}/read?ch=${nextChapter}`} rel="next" class="nav-link nav-next">
+            Next Chapter →
+          </a>
+        )}
+      </nav>
+    </article>
+  </main>
+</Layout>
+
+<style>
+  .chapter-page {
+    min-height: 100vh;
+    background: var(--color-bg);
+    color: var(--color-text);
+    padding: 2rem 1rem;
+  }
+
+  #chapter-content {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 1.5rem 0;
+  }
+
+  .chapter-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .novel-link {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+  }
+
+  .novel-link:hover {
+    color: var(--color-accent);
+  }
+
+  .chapter-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .chapter-body {
+    font-size: 1.1rem;
+    line-height: 1.8;
+    color: var(--color-text);
+  }
+
+  .chapter-body p {
+    margin-bottom: 1.2em;
+    text-align: justify;
+  }
+
+  .chapter-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .nav-prev,
+  .nav-next {
+    color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+
+  .nav-prev:hover,
+  .nav-next:hover {
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  .nav-reader {
+    color: var(--color-text-muted);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+  }
+
+  .nav-reader:hover {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  @media (max-width: 480px) {
+    .chapter-page {
+      padding: 1rem 0.75rem;
+    }
+
+    .chapter-header h1 {
+      font-size: 1.25rem;
+    }
+
+    .chapter-body {
+      font-size: 1rem;
+      line-height: 1.7;
+    }
+
+    .chapter-nav {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .nav-link {
+      justify-content: center;
+      text-align: center;
+    }
+  }
+</style>
