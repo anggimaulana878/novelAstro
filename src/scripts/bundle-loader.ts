@@ -119,8 +119,18 @@ export async function loadChapterRange(
 }
 
 function countWords(html: string): number {
-  const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  return text ? text.split(' ').length : 0;
+  const text = html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  if (!text) return 0;
+
+  // CJK detection: if more than half the characters are CJK, count characters
+  const cjkMatches = text.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef]/g);
+  if (cjkMatches && cjkMatches.length > text.length * 0.3) {
+    // Each CJK character ≈ 1 word equivalent
+    return cjkMatches.length;
+  }
+
+  // Latin/other languages: split by whitespace
+  return text.split(/\s+/).length;
 }
 
 export async function loadChaptersByWordCount(
