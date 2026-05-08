@@ -16,6 +16,30 @@ const { slug } = Astro.params;
 const indexPath = path.join(process.cwd(), 'public/novels/index.json');
 const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
 const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
+
+// Pre-render chapter 1 at build time for Google Assistant / screen readers / SEO
+let firstChapterHtml = '';
+let firstChapterTitle = '';
+let firstChapterLang = 'en';
+try {
+  const vol1Path = path.join(process.cwd(), `public/novels/${slug}/vol-001.json`);
+  if (fs.existsSync(vol1Path)) {
+    const vol1 = JSON.parse(fs.readFileSync(vol1Path, 'utf-8'));
+    const ch1 = vol1.chapters?.[0];
+    if (ch1?.body) {
+      firstChapterTitle = ch1.title || 'Chapter 1';
+      firstChapterHtml = ch1.body;
+      // Detect language
+      const plainText = ch1.body.replace(/<[^>]*>/g, '').slice(0, 200);
+      const cjk = plainText.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g);
+      if (cjk && cjk.length > plainText.length * 0.3) {
+        firstChapterLang = 'zh';
+      }
+    }
+  }
+} catch {
+  // Silently fail — JS will load content dynamically as fallback
+}
 ---
 
 <Layout
@@ -26,7 +50,9 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     '@context': 'https://schema.org',
     '@type': 'Article',
     name: novel.title,
-    articleBody: '',
+    headline: firstChapterTitle || novel.title,
+    articleBody: firstChapterHtml ? firstChapterHtml.replace(/<[^>]*>/g, '').slice(0, 5000) : '',
+    inLanguage: firstChapterLang,
     speakable: {
       '@type': 'SpeakableSpecification',
       cssSelector: ['.reader-content article h1', '.reader-content article section'],
@@ -56,7 +82,12 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     </header>
 
     <main class="reader-content" id="reader-content" role="main" aria-live="polite" aria-atomic="false" aria-relevant="additions">
-      <div class="loading" id="loading-indicator" role="status" aria-live="polite">Loading...</div>
+      <div class="loading" id="loading-indicator" role="status" aria-live="polite" style={firstChapterHtml ? 'display:none;' : ''}>Loading...</div>
+      {firstChapterHtml && (
+        <article id="prerendered-chapter" role="article" aria-label={`Chapter 1: ${firstChapterTitle}`} lang={firstChapterLang}>
+          <section set:html={firstChapterHtml} />
+        </article>
+      )}
     </main>
 
     <nav class="reader-nav" id="reader-nav" aria-hidden="true">
@@ -434,16 +465,33 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   });
 
   // --- INIT ---
-  if (isBundleMode) {
-    // Parse bundle param if present, otherwise start from progress
-    if (bundleParam && bundleParam.includes('-')) {
-      const [start] = bundleParam.split('-').map(Number);
-      renderBundle(start);
-    } else {
-      renderBundle(currentChapter);
-    }
+  // Check if pre-rendered chapter 1 is present and we should keep it
+  const prerendered = document.getElementById('prerendered-chapter');
+  const shouldKeepPrerendered = prerendered && !isBundleMode && currentChapter === 1 && !chParam && !bundleParam;
+
+  if (shouldKeepPrerendered) {
+    // Chapter 1 is already in the HTML — just set up state without fetching
+    hideLoading();
+    navInfo.textContent = 'Ch. 1';
+    prevBtn.toggleAttribute('disabled', true);
+    nextBtn.toggleAttribute('disabled', totalChapters <= 1);
+    setProgress(slug, { lastChapter: 1 });
+    prefetchNextBundle(slug, 1);
   } else {
-    renderSingleChapter(currentChapter);
+    // Remove pre-rendered content — JS will load the correct chapter
+    if (prerendered) prerendered.remove();
+
+    if (isBundleMode) {
+      // Parse bundle param if present, otherwise start from progress
+      if (bundleParam && bundleParam.includes('-')) {
+        const [start] = bundleParam.split('-').map(Number);
+        renderBundle(start);
+      } else {
+        renderBundle(currentChapter);
+      }
+    } else {
+      renderSingleChapter(currentChapter);
+    }
   }
 
   // --- SETTINGS SHEET ---
