@@ -1,0 +1,155 @@
+/* === Reset === */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* === Theme Variables === */
+:root {
+  /* Colors — Light (default) */
+  --color-bg: #ffffff;
+  --color-text: #1a1a1a;
+  --color-text-muted: #6b7280;
+  --color-accent: #2563eb;
+  --color-accent-soft: #dbeafe;
+  --color-surface: #f9fafb;
+  --color-border: #e5e7eb;
+  --color-overlay: rgba(0, 0, 0, 0.4);
+
+  /* Typography */
+  --font-serif: 'Georgia', 'Times New Roman', serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+
+  --font-size-1: 0.875rem;  /* 14px */
+  --font-size-2: 1rem;      /* 16px */
+  --font-size-3: 1.125rem;  /* 18px */
+  --font-size-4: 1.25rem;   /* 20px */
+  --font-size-5: 1.5rem;    /* 24px */
+
+  --line-height: 1.75;
+  --letter-spacing: 0.01em;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Layout */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --bottom-nav-height: 56px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  --color-bg: #0f0f0f;
+  --color-text: #e5e5e5;
+  --color-text-muted: #9ca3af;
+  --color-accent: #60a5fa;
+  --color-accent-soft: #1e3a5f;
+  --color-surface: #1a1a1a;
+  --color-border: #2d2d2d;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+}
+
+/* === Base Styles === */
+html {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-3);
+  line-height: var(--line-height);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100dvh;
+  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
+}
+
+/* Font family overrides */
+[data-font="serif"] { font-family: var(--font-serif); }
+[data-font="sans"] { font-family: var(--font-sans); }
+[data-font="mono"] { font-family: var(--font-mono); }
+
+/* Font size overrides */
+[data-fontsize="1"] { font-size: var(--font-size-1); }
+[data-fontsize="2"] { font-size: var(--font-size-2); }
+[data-fontsize="3"] { font-size: var(--font-size-3); }
+[data-fontsize="4"] { font-size: var(--font-size-4); }
+[data-fontsize="5"] { font-size: var(--font-size-5); }
+
+/* === Links === */
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+/* === Images === */
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* === Utilities === */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* === Scrollbar (minimal) === */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}

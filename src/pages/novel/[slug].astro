@@ -1,0 +1,311 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import BottomNav from '../../components/BottomNav.astro';
+import fs from 'node:fs';
+import path from 'node:path';
+
+export function getStaticPaths() {
+  const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+  const data = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+  return data.novels.map((novel: { slug: string }) => ({
+    params: { slug: novel.slug },
+  }));
+}
+
+const { slug } = Astro.params;
+const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
+---
+
+<Layout
+  title={novel.title}
+  description={novel.synopsis || `Read ${novel.title} online`}
+  canonicalPath={`/novel/${slug}`}
+  ogImage={novel.cover}
+  jsonLd={{
+    '@context': 'https://schema.org',
+    '@type': 'Book',
+    name: novel.title,
+    author: novel.authors.map((a: string) => ({ '@type': 'Person', name: a })),
+    genre: novel.genres,
+    description: novel.synopsis || undefined,
+    image: novel.cover,
+    numberOfPages: novel.totalChapters,
+  }}
+>
+  <main class="detail" id="detail-root" data-slug={slug}>
+    <header class="detail-header">
+      <a href="/" class="back-btn touch-target" aria-label="Back to library">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </a>
+      <h1>{novel.title}</h1>
+    </header>
+
+    <section class="novel-meta">
+      <div class="cover-large">
+        <img src={novel.cover} alt={novel.title} />
+      </div>
+      <div class="meta-info">
+        {novel.authors.length > 0 && <p class="authors">{novel.authors.join(', ')}</p>}
+        <p class="chapters">{novel.totalChapters} chapters</p>
+        {novel.genres.length > 0 && (
+          <div class="genres">
+            {novel.genres.map((g: string) => <span class="genre-tag">{g}</span>)}
+          </div>
+        )}
+      </div>
+    </section>
+
+    {novel.synopsis && (
+      <section class="synopsis">
+        <p>{novel.synopsis}</p>
+      </section>
+    )}
+
+    <section class="actions">
+      <a href={`/novel/${slug}/read`} class="btn-primary" id="continue-btn">
+        Start Reading
+      </a>
+    </section>
+
+    <section class="chapter-list-section">
+      <div class="chapter-list-header">
+        <h2>Chapters</h2>
+        <input type="search" id="chapter-search" placeholder="Search chapters..." class="chapter-search" />
+      </div>
+      <div class="chapter-list" id="chapter-list"></div>
+    </section>
+  </main>
+  <BottomNav />
+</Layout>
+
+<script>
+  import { getProgress } from '../../scripts/storage';
+  import { initTheme } from '../../scripts/theme';
+  import { getNovelInfo } from '../../scripts/bundle-loader';
+
+  initTheme();
+
+  const root = document.getElementById('detail-root')!;
+  const slug = root.dataset.slug!;
+
+  const progress = getProgress(slug);
+  const continueBtn = document.getElementById('continue-btn');
+  if (progress && progress.lastChapter > 1 && continueBtn) {
+    continueBtn.textContent = `Continue Ch. ${progress.lastChapter}`;
+    continueBtn.setAttribute('href', `/novel/${slug}/read?ch=${progress.lastChapter}`);
+  }
+
+  async function renderChapterList(): Promise<void> {
+    const info = await getNovelInfo(slug);
+    const listEl = document.getElementById('chapter-list');
+    const searchEl = document.getElementById('chapter-search') as HTMLInputElement | null;
+    if (!listEl) return;
+
+    const chapters: number[] = [];
+    for (const bundle of info.bundles) {
+      const [start, end] = bundle.range.split('-').map(Number);
+      for (let i = start; i <= end; i++) {
+        chapters.push(i);
+      }
+    }
+
+    function renderItems(filtered: number[]): void {
+      const visible = filtered.slice(0, 100);
+      listEl!.innerHTML = visible.map((num) =>
+        `<a href="/novel/${slug}/read?ch=${num}" class="chapter-item">Chapter ${num}</a>`
+      ).join('');
+
+      if (filtered.length > 100) {
+        listEl!.innerHTML += `<div class="load-more" id="load-more">Show more (${filtered.length - 100} remaining)</div>`;
+      }
+    }
+
+    renderItems(chapters);
+
+    if (searchEl) {
+      searchEl.addEventListener('input', () => {
+        const query = searchEl.value.trim();
+        if (!query) {
+          renderItems(chapters);
+          return;
+        }
+        const filtered = chapters.filter((ch) => String(ch).includes(query));
+        renderItems(filtered);
+      });
+    }
+  }
+
+  renderChapterList();
+</script>
+
+<style>
+  .detail {
+    padding: var(--space-md);
+    padding-top: calc(var(--safe-top) + var(--space-md));
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .detail-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-lg);
+  }
+
+  .back-btn {
+    color: var(--color-text);
+  }
+
+  .detail-header h1 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .novel-meta {
+    display: flex;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+  }
+
+  .cover-large {
+    width: 120px;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    aspect-ratio: 3 / 4;
+    background: var(--color-border);
+  }
+
+  .cover-large img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .meta-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    justify-content: center;
+  }
+
+  .authors {
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .chapters {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+  }
+
+  .genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .genre-tag {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    border-radius: var(--radius-full);
+  }
+
+  .synopsis {
+    margin-bottom: var(--space-lg);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+  }
+
+  .actions {
+    margin-bottom: var(--space-xl);
+  }
+
+  .btn-primary {
+    display: block;
+    width: 100%;
+    padding: var(--space-md);
+    background: var(--color-accent);
+    color: white;
+    text-align: center;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+    min-height: 44px;
+  }
+
+  .btn-primary:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+
+  .chapter-list-section {
+    margin-bottom: var(--space-2xl);
+  }
+
+  .chapter-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-md);
+    gap: var(--space-sm);
+  }
+
+  .chapter-list-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .chapter-search {
+    flex: 1;
+    max-width: 160px;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.8rem;
+    outline: none;
+  }
+
+  .chapter-search:focus {
+    border-color: var(--color-accent);
+  }
+
+  .chapter-list :global(.chapter-item) {
+    display: block;
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 0.85rem;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .chapter-list :global(.chapter-item:active) {
+    background: var(--color-surface);
+  }
+
+  .chapter-list :global(.load-more) {
+    padding: var(--space-md);
+    text-align: center;
+    color: var(--color-accent);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+</style>

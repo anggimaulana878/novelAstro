@@ -1,0 +1,536 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import SettingsSheet from '../../../components/SettingsSheet.astro';
+import fs from 'node:fs';
+import path from 'node:path';
+
+export function getStaticPaths() {
+  const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+  const data = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+  return data.novels.map((novel: { slug: string }) => ({
+    params: { slug: novel.slug },
+  }));
+}
+
+const { slug } = Astro.params;
+const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
+---
+
+<Layout
+  title={`Reading - ${novel.title}`}
+  canonicalPath={`/novel/${slug}/read`}
+  description={`Read ${novel.title} chapters online`}
+  jsonLd={{
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    name: novel.title,
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['article h1', 'article section'],
+    },
+  }}
+>
+  <div class="reader" id="reader-root" data-slug={slug} data-total={novel.totalChapters}>
+    <header class="reader-header" id="reader-header">
+      <a href={`/novel/${slug}`} class="back-btn touch-target" aria-label="Back to novel">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </a>
+      <span class="header-title" id="header-title">{novel.title}</span>
+      <button class="settings-btn touch-target" id="settings-toggle" aria-label="Reader settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+          <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+          <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
+          <line x1="17" y1="16" x2="23" y2="16"/>
+        </svg>
+      </button>
+    </header>
+
+    <main class="reader-content" id="reader-content" aria-hidden="false">
+      <div class="loading" id="loading-indicator">Loading...</div>
+    </main>
+
+    <nav class="reader-nav" id="reader-nav" aria-hidden="true">
+      <button class="nav-btn touch-target" id="prev-btn" aria-label="Previous chapter">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        <span>Prev</span>
+      </button>
+      <span class="nav-info" id="nav-info">Ch. 1</span>
+      <button class="nav-btn touch-target" id="next-btn" aria-label="Next chapter">
+        <span>Next</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </nav>
+
+    <div class="tap-zone tap-left" id="tap-left" aria-hidden="true"></div>
+    <div class="tap-zone tap-right" id="tap-right" aria-hidden="true"></div>
+
+    <SettingsSheet slug={slug} />
+  </div>
+</Layout>
+
+<script>
+  import { initTheme, setTheme, getTheme } from '../../../scripts/theme';
+  import { loadChapter, loadChapterRange, loadChaptersByWordCount, prefetchNextBundle } from '../../../scripts/bundle-loader';
+  import { getProgress, setProgress, getSettings, setSettings } from '../../../scripts/storage';
+  import type { Chapter } from '../../../scripts/bundle-loader';
+
+  initTheme();
+
+  const root = document.getElementById('reader-root')!;
+  const slug = root.dataset.slug!;
+  const totalChapters = parseInt(root.dataset.total!, 10);
+  const content = document.getElementById('reader-content')!;
+  const loading = document.getElementById('loading-indicator')!;
+  const navInfo = document.getElementById('nav-info')!;
+  const headerTitle = document.getElementById('header-title')!;
+  const prevBtn = document.getElementById('prev-btn')!;
+  const nextBtn = document.getElementById('next-btn')!;
+  const tapLeft = document.getElementById('tap-left')!;
+  const tapRight = document.getElementById('tap-right')!;
+
+  const params = new URLSearchParams(window.location.search);
+  const progress = getProgress(slug);
+
+  // Determine reading mode
+  const bundleParam = params.get('bundle');
+  const chParam = params.get('ch');
+  const isBundleMode = !!bundleParam || (!chParam && progress?.bundleMode);
+
+  let currentChapter = parseInt(chParam || '1', 10);
+  if (!chParam && progress) {
+    currentChapter = progress.lastChapter || 1;
+  }
+
+  // Track bundle state
+  let bundleStart = 0;
+  let bundleEnd = 0;
+
+  function renderChapterArticle(chapter: Chapter): HTMLElement {
+    const article = document.createElement('article');
+    const h1 = document.createElement('h1');
+    h1.textContent = chapter.title;
+    article.appendChild(h1);
+
+    const section = document.createElement('section');
+    const paragraphs = chapter.content.split('\n').filter((p: string) => p.trim());
+    for (const text of paragraphs) {
+      const p = document.createElement('p');
+      p.textContent = text;
+      section.appendChild(p);
+    }
+    article.appendChild(section);
+    return article;
+  }
+
+  // --- SINGLE CHAPTER MODE ---
+  async function renderSingleChapter(chapterNum: number): Promise<void> {
+    loading.style.display = 'block';
+    content.querySelectorAll('article, .chapter-divider').forEach((el) => el.remove());
+
+    const chapter = await loadChapter(slug, chapterNum);
+    loading.style.display = 'none';
+
+    if (!chapter) {
+      content.innerHTML = '<p class="error">Chapter not found</p>';
+      return;
+    }
+
+    content.appendChild(renderChapterArticle(chapter));
+
+    currentChapter = chapterNum;
+    navInfo.textContent = `Ch. ${chapterNum}`;
+    headerTitle.textContent = chapter.title;
+
+    setProgress(slug, { lastChapter: chapterNum });
+    window.scrollTo(0, 0);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('ch', String(chapterNum));
+    url.searchParams.delete('bundle');
+    history.replaceState(null, '', url.toString());
+
+    prevBtn.toggleAttribute('disabled', chapterNum <= 1);
+    nextBtn.toggleAttribute('disabled', chapterNum >= totalChapters);
+
+    prefetchNextBundle(slug, chapterNum);
+  }
+
+  // --- BUNDLE MODE ---
+  async function renderBundle(startCh: number): Promise<void> {
+    loading.style.display = 'block';
+    content.querySelectorAll('article, .chapter-divider').forEach((el) => el.remove());
+
+    let chapters: Chapter[];
+    const bundleType = progress?.bundleType || 'range';
+    const bundleSize = progress?.bundleSize || 200;
+
+    if (bundleType === 'wordcount') {
+      chapters = await loadChaptersByWordCount(slug, startCh, bundleSize);
+    } else {
+      // Range mode: load bundleSize chapters from startCh
+      const endCh = Math.min(startCh + bundleSize - 1, totalChapters);
+      chapters = await loadChapterRange(slug, startCh, endCh);
+    }
+
+    loading.style.display = 'none';
+
+    if (chapters.length === 0) {
+      content.innerHTML = '<p class="error">No chapters found</p>';
+      return;
+    }
+
+    // Render all chapters with dividers
+    for (let i = 0; i < chapters.length; i++) {
+      if (i > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'chapter-divider';
+        divider.setAttribute('aria-hidden', 'true');
+        content.appendChild(divider);
+      }
+      content.appendChild(renderChapterArticle(chapters[i]));
+    }
+
+    bundleStart = chapters[0].number;
+    bundleEnd = chapters[chapters.length - 1].number;
+    currentChapter = bundleEnd;
+
+    navInfo.textContent = `Ch. ${bundleStart}–${bundleEnd}`;
+    headerTitle.textContent = `Chapters ${bundleStart}–${bundleEnd}`;
+
+    setProgress(slug, { lastChapter: bundleEnd });
+    window.scrollTo(0, 0);
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('ch');
+    url.searchParams.set('bundle', `${bundleStart}-${bundleEnd}`);
+    history.replaceState(null, '', url.toString());
+
+    prevBtn.toggleAttribute('disabled', bundleStart <= 1);
+    nextBtn.toggleAttribute('disabled', bundleEnd >= totalChapters);
+
+    prefetchNextBundle(slug, bundleEnd);
+  }
+
+  // --- NAVIGATION ---
+  function goNext(): void {
+    if (isBundleMode) {
+      if (bundleEnd < totalChapters) renderBundle(bundleEnd + 1);
+    } else {
+      if (currentChapter < totalChapters) renderSingleChapter(currentChapter + 1);
+    }
+  }
+
+  function goPrev(): void {
+    if (isBundleMode) {
+      const bundleSize = progress?.bundleSize || 200;
+      const prevStart = Math.max(1, bundleStart - bundleSize);
+      renderBundle(prevStart);
+    } else {
+      if (currentChapter > 1) renderSingleChapter(currentChapter - 1);
+    }
+  }
+
+  prevBtn.addEventListener('click', goPrev);
+  nextBtn.addEventListener('click', goNext);
+  tapLeft.addEventListener('click', goPrev);
+  tapRight.addEventListener('click', goNext);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') goNext();
+    if (e.key === 'ArrowLeft') goPrev();
+  });
+
+  // --- INIT ---
+  if (isBundleMode) {
+    // Parse bundle param if present, otherwise start from progress
+    if (bundleParam && bundleParam.includes('-')) {
+      const [start] = bundleParam.split('-').map(Number);
+      renderBundle(start);
+    } else {
+      renderBundle(currentChapter);
+    }
+  } else {
+    renderSingleChapter(currentChapter);
+  }
+
+  // --- SETTINGS SHEET ---
+  const settingsToggle = document.getElementById('settings-toggle')!;
+  const settingsSheet = document.getElementById('settings-sheet')!;
+  const settingsBackdrop = document.getElementById('settings-backdrop')!;
+  const themeOptions = document.getElementById('theme-options')!;
+  const fontSizeSlider = document.getElementById('font-size-slider') as HTMLInputElement;
+  const fontOptions = document.getElementById('font-options')!;
+  const bundleToggle = document.getElementById('bundle-toggle')!;
+  const bundleConfig = document.getElementById('bundle-config')!;
+  const bundleTypeOptions = document.getElementById('bundle-type-options')!;
+  const bundleSizeInput = document.getElementById('bundle-size-input') as HTMLInputElement;
+  const bundleSizeLabel = document.getElementById('bundle-size-label')!;
+
+  function openSettings(): void {
+    settingsSheet.setAttribute('aria-hidden', 'false');
+    settingsBackdrop.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeSettings(): void {
+    settingsSheet.setAttribute('aria-hidden', 'true');
+    settingsBackdrop.setAttribute('aria-hidden', 'true');
+  }
+
+  settingsToggle.addEventListener('click', openSettings);
+  settingsBackdrop.addEventListener('click', closeSettings);
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && settingsSheet.getAttribute('aria-hidden') === 'false') {
+      closeSettings();
+    }
+  });
+
+  // --- Sync UI with current settings ---
+  function syncSettingsUI(): void {
+    const settings = getSettings();
+    const novelProgress = getProgress(slug);
+
+    // Theme buttons
+    themeOptions.querySelectorAll('.option-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.value === settings.theme);
+    });
+
+    // Font size
+    fontSizeSlider.value = String(settings.fontSize);
+
+    // Font family buttons
+    fontOptions.querySelectorAll('.option-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.value === settings.fontFamily);
+    });
+
+    // Bundle toggle
+    const bundleEnabled = novelProgress?.bundleMode ?? false;
+    bundleToggle.setAttribute('aria-checked', String(bundleEnabled));
+    bundleConfig.setAttribute('aria-hidden', String(!bundleEnabled));
+
+    // Bundle type
+    const bType = novelProgress?.bundleType ?? 'chapters';
+    bundleTypeOptions.querySelectorAll('.option-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.value === bType);
+    });
+
+    // Bundle size
+    const bSize = novelProgress?.bundleSize ?? 20;
+    bundleSizeInput.value = String(bSize);
+    bundleSizeLabel.textContent = bType === 'wordcount' ? 'Words per bundle' : 'Chapters per bundle';
+  }
+
+  syncSettingsUI();
+
+  // --- Theme change ---
+  themeOptions.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.option-btn') as HTMLElement | null;
+    if (!btn) return;
+    const value = btn.dataset.value as 'light' | 'dark' | 'system';
+    setTheme(value);
+    themeOptions.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+
+  // --- Font size change ---
+  fontSizeSlider.addEventListener('input', () => {
+    const size = parseInt(fontSizeSlider.value, 10) as 1 | 2 | 3 | 4 | 5;
+    setSettings({ fontSize: size });
+    document.documentElement.setAttribute('data-fontsize', String(size));
+  });
+
+  // --- Font family change ---
+  fontOptions.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.option-btn') as HTMLElement | null;
+    if (!btn) return;
+    const value = btn.dataset.value as 'serif' | 'sans' | 'mono';
+    setSettings({ fontFamily: value });
+    document.documentElement.setAttribute('data-font', value);
+    fontOptions.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+
+  // --- Bundle toggle ---
+  bundleToggle.addEventListener('click', () => {
+    const current = bundleToggle.getAttribute('aria-checked') === 'true';
+    const newVal = !current;
+    bundleToggle.setAttribute('aria-checked', String(newVal));
+    bundleConfig.setAttribute('aria-hidden', String(!newVal));
+    setProgress(slug, { bundleMode: newVal });
+  });
+
+  // --- Bundle type change ---
+  bundleTypeOptions.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.option-btn') as HTMLElement | null;
+    if (!btn) return;
+    const value = btn.dataset.value as 'chapters' | 'wordcount';
+    setProgress(slug, { bundleType: value });
+    bundleTypeOptions.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    bundleSizeLabel.textContent = value === 'wordcount' ? 'Words per bundle' : 'Chapters per bundle';
+    // Reset size to sensible default when switching type
+    const defaultSize = value === 'wordcount' ? 50000 : 20;
+    bundleSizeInput.value = String(defaultSize);
+    setProgress(slug, { bundleSize: defaultSize });
+  });
+
+  // --- Bundle size change ---
+  bundleSizeInput.addEventListener('change', () => {
+    const size = parseInt(bundleSizeInput.value, 10);
+    if (size > 0) {
+      setProgress(slug, { bundleSize: size });
+    }
+  });
+</script>
+
+<style>
+  .reader {
+    position: relative;
+    min-height: 100dvh;
+  }
+
+  .reader-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    padding-top: calc(var(--safe-top) + var(--space-sm));
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .back-btn {
+    color: var(--color-text);
+  }
+
+  .header-title {
+    flex: 1;
+    font-size: 0.85rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-btn {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+
+  .reader-content {
+    padding: var(--space-lg) var(--space-md);
+    padding-bottom: calc(var(--space-2xl) + 60px);
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .reader-content :global(article h1) {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: var(--space-lg);
+    line-height: 1.4;
+  }
+
+  .reader-content :global(article p) {
+    margin-bottom: var(--space-md);
+    line-height: var(--line-height);
+  }
+
+  .loading {
+    text-align: center;
+    padding: var(--space-xl);
+    color: var(--color-text-muted);
+  }
+
+  .error {
+    text-align: center;
+    color: var(--color-text-muted);
+    padding: var(--space-xl);
+  }
+
+  .reader-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-sm) var(--space-md);
+    padding-bottom: calc(var(--safe-bottom) + var(--space-sm));
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    z-index: 50;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    background: none;
+    border: none;
+    color: var(--color-accent);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: var(--space-sm);
+  }
+
+  .nav-btn[disabled] {
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  .nav-info {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+  }
+
+  .tap-zone {
+    position: fixed;
+    top: 60px;
+    bottom: 60px;
+    width: 25%;
+    z-index: 10;
+  }
+
+  .tap-left {
+    left: 0;
+  }
+
+  .tap-right {
+    right: 0;
+  }
+
+  .reader-content :global(.chapter-divider) {
+    height: 1px;
+    background: var(--color-border);
+    margin: var(--space-xl) 0;
+    position: relative;
+  }
+
+  .reader-content :global(.chapter-divider)::after {
+    content: '•  •  •';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--color-bg);
+    padding: 0 var(--space-md);
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+  }
+</style>

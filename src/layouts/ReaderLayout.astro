@@ -1,0 +1,22 @@
+---
+import Layout from './Layout.astro';
+
+interface Props {
+  title: string;
+  novelTitle: string;
+  canonicalPath?: string;
+}
+
+const { title, novelTitle, canonicalPath } = Astro.props;
+---
+
+<Layout title={`${title} - ${novelTitle}`} canonicalPath={canonicalPath}>
+  <article>
+    <slot />
+  </article>
+</Layout>
+
+<script>
+  import { initTheme } from '../scripts/theme';
+  initTheme();
+</script>

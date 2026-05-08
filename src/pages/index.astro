@@ -1,11 +1,149 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+import BottomNav from '../components/BottomNav.astro';
 ---
 
-<Layout>
-	<Welcome />
+<Layout title="Novel Reader">
+  <main class="home">
+    <header class="home-header">
+      <h1>Library</h1>
+    </header>
+    <div class="novel-grid" id="novel-grid">
+    </div>
+  </main>
+  <BottomNav active="home" />
 </Layout>
+
+<script>
+  import { initTheme } from '../scripts/theme';
+  import { getAllProgress } from '../scripts/storage';
+
+  initTheme();
+
+  interface NovelCatalogItem {
+    id: string;
+    title: string;
+    slug: string;
+    cover: string;
+    totalChapters: number;
+    authors: string[];
+    genres: string[];
+  }
+
+  async function loadCatalog(): Promise<void> {
+    const res = await fetch('/novels/index.json');
+    const data: { novels: NovelCatalogItem[] } = await res.json();
+    const novels = data.novels;
+    const progress = getAllProgress();
+    const grid = document.getElementById('novel-grid');
+    if (!grid) return;
+
+    grid.innerHTML = novels.map((novel) => {
+      const p = progress[novel.slug];
+      const progressPercent = p ? Math.round((p.lastChapter / novel.totalChapters) * 100) : 0;
+      const lastRead = p?.lastReadAt ? new Date(p.lastReadAt).toLocaleDateString() : '';
+
+      return `
+        <a href="/novel/${novel.slug}" class="novel-card">
+          <div class="cover-wrap">
+            <img src="${novel.cover}" alt="${novel.title}" loading="lazy" />
+            ${progressPercent > 0 ? `<div class="progress-bar"><div class="progress-fill" style="width:${progressPercent}%"></div></div>` : ''}
+          </div>
+          <div class="card-info">
+            <span class="card-title">${novel.title}</span>
+            ${lastRead ? `<span class="card-meta">${lastRead}</span>` : ''}
+          </div>
+        </a>
+      `;
+    }).join('');
+  }
+
+  loadCatalog();
+</script>
+
+<style>
+  .home {
+    padding: var(--space-md);
+    padding-top: calc(var(--safe-top) + var(--space-md));
+  }
+
+  .home-header {
+    margin-bottom: var(--space-lg);
+  }
+
+  .home-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .novel-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+  }
+
+  .novel-grid :global(.novel-card) {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: var(--color-text);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--color-surface);
+    transition: transform var(--transition-fast);
+  }
+
+  .novel-grid :global(.novel-card:active) {
+    transform: scale(0.97);
+  }
+
+  .novel-grid :global(.cover-wrap) {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    background: var(--color-border);
+  }
+
+  .novel-grid :global(.cover-wrap img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .novel-grid :global(.progress-bar) {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--color-border);
+  }
+
+  .novel-grid :global(.progress-fill) {
+    height: 100%;
+    background: var(--color-accent);
+    transition: width var(--transition-normal);
+  }
+
+  .novel-grid :global(.card-info) {
+    padding: var(--space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .novel-grid :global(.card-title) {
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .novel-grid :global(.card-meta) {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+  }
+</style>
