@@ -28,9 +28,27 @@ try {
     const ch1 = vol1.chapters?.[0];
     if (ch1?.body) {
       firstChapterTitle = ch1.title || 'Chapter 1';
-      firstChapterHtml = ch1.body;
+      let html = ch1.body;
+      // Google Assistant "Read It" requires first <p> to be ≥270 chars.
+      // Strip non-content leading paragraphs after <h1>:
+      // 1. Duplicate chapter title (exact match)
+      // 2. Translator/editor credit lines
+      const h1End = html.indexOf('</h1>');
+      if (h1End !== -1) {
+        const before = html.slice(0, h1End + 5);
+        let after = html.slice(h1End + 5);
+        // Strip duplicate title paragraph
+        const titleEscaped = (ch1.title || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (titleEscaped) {
+          after = after.replace(new RegExp(`^\\s*<p>${titleEscaped}<\\/p>`, 'i'), '');
+        }
+        // Strip translator/editor credit paragraphs
+        after = after.replace(/^\s*<p>\s*(Translator|Editor|TL|ED)\s*[:：].*?<\/p>/gi, '');
+        html = before + after;
+      }
+      firstChapterHtml = html;
       // Detect language
-      const plainText = ch1.body.replace(/<[^>]*>/g, '').slice(0, 200);
+      const plainText = html.replace(/<[^>]*>/g, '').slice(0, 200);
       const cjk = plainText.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g);
       if (cjk && cjk.length > plainText.length * 0.3) {
         firstChapterLang = 'zh';
@@ -55,7 +73,7 @@ try {
     inLanguage: firstChapterLang,
     speakable: {
       '@type': 'SpeakableSpecification',
-      cssSelector: ['.reader-content article h1', '.reader-content article section'],
+      cssSelector: ['.reader-content article', '.reader-content article p'],
     },
     accessibilityFeature: ['readingOrder', 'structuralNavigation', 'alternativeText'],
     accessMode: ['textual'],
