@@ -26,10 +26,14 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     '@context': 'https://schema.org',
     '@type': 'Article',
     name: novel.title,
+    articleBody: '',
     speakable: {
       '@type': 'SpeakableSpecification',
-      cssSelector: ['article h1', 'article section'],
+      cssSelector: ['.reader-content article h1', '.reader-content article section'],
     },
+    accessibilityFeature: ['readingOrder', 'structuralNavigation', 'alternativeText'],
+    accessMode: ['textual'],
+    accessModeSufficient: [{ '@type': 'ItemList', itemListElement: ['textual'] }],
   }}
 >
   <div class="reader" id="reader-root" data-slug={slug} data-total={novel.totalChapters}>
@@ -51,8 +55,8 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
       </button>
     </header>
 
-    <main class="reader-content" id="reader-content" aria-hidden="false">
-      <div class="loading" id="loading-indicator">Loading...</div>
+    <main class="reader-content" id="reader-content" role="main" aria-live="polite" aria-atomic="false" aria-relevant="additions">
+      <div class="loading" id="loading-indicator" role="status" aria-live="polite">Loading...</div>
     </main>
 
     <nav class="reader-nav" id="reader-nav" aria-hidden="true">
@@ -125,8 +129,28 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   let bundleStart = 0;
   let bundleEnd = 0;
 
+  /**
+   * Detect language from text content.
+   * Returns BCP 47 lang code: 'zh' for CJK-heavy, 'en' otherwise.
+   */
+  function detectLang(text: string): string {
+    const sample = text.slice(0, 200);
+    const cjk = sample.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g);
+    if (cjk && cjk.length > sample.length * 0.3) return 'zh';
+    return 'en';
+  }
+
   function renderChapterArticle(chapter: Chapter): HTMLElement {
     const article = document.createElement('article');
+    article.setAttribute('role', 'article');
+    article.setAttribute('aria-label', `Chapter ${chapter.number}: ${chapter.title}`);
+    article.setAttribute('tabindex', '0');
+
+    // Detect language from content and set lang attribute
+    const plainText = chapter.content.replace(/<[^>]*>/g, '');
+    const lang = detectLang(plainText);
+    article.setAttribute('lang', lang);
+
     const section = document.createElement('section');
     section.innerHTML = chapter.content;
 
@@ -155,20 +179,51 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     return article;
   }
 
+  /**
+   * Update the document lang attribute based on content language.
+   * This helps Google Assistant / TTS engines select the correct voice.
+   */
+  function updateDocumentLang(lang: string): void {
+    document.documentElement.setAttribute('lang', lang);
+  }
+
+  /**
+   * Hide loading indicator and mark content as ready for screen readers.
+   */
+  function hideLoading(): void {
+    loading.style.display = 'none';
+    loading.setAttribute('aria-hidden', 'true');
+    content.setAttribute('aria-busy', 'false');
+  }
+
+  /**
+   * Show loading indicator and mark content as busy.
+   */
+  function showLoading(): void {
+    loading.style.display = 'block';
+    loading.removeAttribute('aria-hidden');
+    content.setAttribute('aria-busy', 'true');
+  }
+
   // --- SINGLE CHAPTER MODE ---
   async function renderSingleChapter(chapterNum: number): Promise<void> {
-    loading.style.display = 'block';
+    showLoading();
     content.querySelectorAll('article, .chapter-divider').forEach((el) => el.remove());
 
     const chapter = await loadChapter(slug, chapterNum);
-    loading.style.display = 'none';
+    hideLoading();
 
     if (!chapter) {
-      content.innerHTML = '<p class="error">Chapter not found</p>';
+      content.innerHTML = '<p class="error" role="alert">Chapter not found</p>';
       return;
     }
 
-    content.appendChild(renderChapterArticle(chapter));
+    const articleEl = renderChapterArticle(chapter);
+    content.appendChild(articleEl);
+
+    // Update document lang to match content language
+    const lang = articleEl.getAttribute('lang') || 'en';
+    updateDocumentLang(lang);
 
     currentChapter = chapterNum;
     navInfo.textContent = `Ch. ${chapterNum}`;
@@ -190,7 +245,7 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 
   // --- BUNDLE MODE ---
   async function renderBundle(startCh: number): Promise<void> {
-    loading.style.display = 'block';
+    showLoading();
     content.querySelectorAll('article, .chapter-divider').forEach((el) => el.remove());
 
     let chapters: Chapter[];
@@ -205,23 +260,33 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
       chapters = await loadChapterRange(slug, startCh, endCh);
     }
 
-    loading.style.display = 'none';
+    hideLoading();
 
     if (chapters.length === 0) {
-      content.innerHTML = '<p class="error">No chapters found</p>';
+      content.innerHTML = '<p class="error" role="alert">No chapters found</p>';
       return;
     }
 
     // Render all chapters with dividers
+    let detectedLang = 'en';
     for (let i = 0; i < chapters.length; i++) {
       if (i > 0) {
         const divider = document.createElement('div');
         divider.className = 'chapter-divider';
+        divider.setAttribute('role', 'separator');
         divider.setAttribute('aria-hidden', 'true');
         content.appendChild(divider);
       }
-      content.appendChild(renderChapterArticle(chapters[i]));
+      const articleEl = renderChapterArticle(chapters[i]);
+      content.appendChild(articleEl);
+      // Use first chapter's lang for document-level lang
+      if (i === 0) {
+        detectedLang = articleEl.getAttribute('lang') || 'en';
+      }
     }
+
+    // Update document lang to match content language
+    updateDocumentLang(detectedLang);
 
     bundleStart = chapters[0].number;
     bundleEnd = chapters[chapters.length - 1].number;
