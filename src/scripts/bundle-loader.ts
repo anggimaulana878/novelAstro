@@ -4,6 +4,22 @@ export interface Chapter {
   content: string;
 }
 
+interface RawChapter {
+  id: number;
+  title: string;
+  body: string;
+  url?: string;
+  volume?: number;
+  volumeTitle?: string;
+}
+
+interface RawBundle {
+  bundleId: number;
+  range: string;
+  novelSlug: string;
+  chapters: RawChapter[];
+}
+
 interface BundleInfo {
   id: number;
   range: string;
@@ -44,14 +60,25 @@ function findBundleForChapter(info: NovelInfo, chapterNum: number): BundleInfo |
   return null;
 }
 
+function mapRawChapters(raw: RawBundle): Chapter[] {
+  return raw.chapters.map((ch) => ({
+    number: ch.id,
+    title: ch.title,
+    content: ch.body,
+  }));
+}
+
 async function fetchBundle(slug: string, bundleFile: string): Promise<Chapter[]> {
   const cacheKey = `${slug}/${bundleFile}`;
   const cached = bundleCache.get(cacheKey);
   if (cached) return cached;
 
-  const res = await fetch(`/novels/${slug}/${bundleFile}`);
-  if (!res.ok) throw new Error(`Failed to load bundle ${bundleFile} for ${slug}`);
-  const chapters: Chapter[] = await res.json();
+  const jsonFile = bundleFile.replace(/\.br$/, '');
+  const res = await fetch(`/novels/${slug}/${jsonFile}`);
+  if (!res.ok) throw new Error(`Failed to load bundle ${jsonFile} for ${slug}`);
+
+  const raw: RawBundle = await res.json();
+  const chapters = mapRawChapters(raw);
   bundleCache.set(cacheKey, chapters);
   return chapters;
 }
@@ -91,6 +118,11 @@ export async function loadChapterRange(
   return result.sort((a, b) => a.number - b.number);
 }
 
+function countWords(html: string): number {
+  const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text ? text.split(' ').length : 0;
+}
+
 export async function loadChaptersByWordCount(
   slug: string,
   startChapter: number,
@@ -104,8 +136,9 @@ export async function loadChaptersByWordCount(
     const chapter = await loadChapter(slug, num);
     if (!chapter) continue;
 
-    const chapterWords = chapter.content.split(/\s+/).length;
+    const chapterWords = countWords(chapter.content);
 
+    // Never exceed target — exclude chapter that would push over the limit
     if (wordCount > 0 && wordCount + chapterWords > targetWords) {
       break;
     }
@@ -115,6 +148,20 @@ export async function loadChaptersByWordCount(
   }
 
   return result;
+}
+
+export interface ChapterEntry {
+  number: number;
+  title: string;
+}
+
+export async function loadAllChapterEntries(slug: string): Promise<ChapterEntry[]> {
+  const info = await getNovelInfo(slug);
+  const fetches = info.bundles.map((b) => fetchBundle(slug, b.file));
+  const allChapters = (await Promise.all(fetches)).flat();
+  return allChapters
+    .map((ch) => ({ number: ch.number, title: ch.title }))
+    .sort((a, b) => a.number - b.number);
 }
 
 export async function prefetchNextBundle(slug: string, currentChapter: number): Promise<void> {

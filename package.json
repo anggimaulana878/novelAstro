@@ -6,6 +6,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "prebuild": "node scripts/decompress-bundles.mjs",
+    "predev": "node scripts/decompress-bundles.mjs",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",

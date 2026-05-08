@@ -83,6 +83,8 @@ const { slug } = Astro.props;
           <label for="bundle-size-input" class="toggle-label" id="bundle-size-label">Chapters per bundle</label>
           <input type="number" id="bundle-size-input" min="5" max="500" value="20" class="number-input" aria-label="Bundle size">
         </div>
+
+        <button class="save-bundle-btn touch-target" id="save-bundle-btn">Save & Apply</button>
       </div>
     </section>
   </div>
@@ -307,5 +309,22 @@ const { slug } = Astro.props;
   .number-input:focus {
     outline: none;
     border-color: var(--color-accent);
+  }
+
+  .save-bundle-btn {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    margin-top: var(--space-sm);
+    background: var(--color-accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .save-bundle-btn:active {
+    opacity: 0.8;
   }
 </style>

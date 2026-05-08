@@ -22,3 +22,6 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# decompressed novel bundles (generated from .json.br)
+public/novels/*/vol-*.json

@@ -60,7 +60,7 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
         <span>Prev</span>
       </button>
-      <span class="nav-info" id="nav-info">Ch. 1</span>
+      <button class="nav-info touch-target" id="nav-info" aria-label="Jump to chapter">Ch. 1</button>
       <button class="nav-btn touch-target" id="next-btn" aria-label="Next chapter">
         <span>Next</span>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
@@ -70,13 +70,27 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     <div class="tap-zone tap-left" id="tap-left" aria-hidden="true"></div>
     <div class="tap-zone tap-right" id="tap-right" aria-hidden="true"></div>
 
+    <!-- Chapter Sidebar -->
+    <div class="chapter-sidebar-overlay" id="chapter-sidebar-overlay" aria-hidden="true">
+      <aside class="chapter-sidebar" id="chapter-sidebar">
+        <div class="sidebar-header">
+          <span>Chapters</span>
+          <button class="sidebar-close touch-target" id="sidebar-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="sidebar-search">
+          <input type="text" id="sidebar-search-input" class="sidebar-search-input" placeholder="Search chapter..." />
+        </div>
+        <ul class="sidebar-list" id="sidebar-list"></ul>
+      </aside>
+    </div>
+
     <SettingsSheet slug={slug} />
   </div>
 </Layout>
 
 <script>
   import { initTheme, setTheme, getTheme } from '../../../scripts/theme';
-  import { loadChapter, loadChapterRange, loadChaptersByWordCount, prefetchNextBundle } from '../../../scripts/bundle-loader';
+  import { loadChapter, loadChapterRange, loadChaptersByWordCount, prefetchNextBundle, getNovelInfo, loadAllChapterEntries } from '../../../scripts/bundle-loader';
   import { getProgress, setProgress, getSettings, setSettings } from '../../../scripts/storage';
   import type { Chapter } from '../../../scripts/bundle-loader';
 
@@ -113,17 +127,30 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 
   function renderChapterArticle(chapter: Chapter): HTMLElement {
     const article = document.createElement('article');
-    const h1 = document.createElement('h1');
-    h1.textContent = chapter.title;
-    article.appendChild(h1);
-
     const section = document.createElement('section');
-    const paragraphs = chapter.content.split('\n').filter((p: string) => p.trim());
-    for (const text of paragraphs) {
-      const p = document.createElement('p');
-      p.textContent = text;
-      section.appendChild(p);
+    section.innerHTML = chapter.content;
+
+    // If content already has an h1, use it (move to article level) instead of adding duplicate
+    const existingH1 = section.querySelector('h1');
+    if (existingH1) {
+      article.appendChild(existingH1);
+      // Remove duplicate <p> that repeats the title (may differ in punctuation/formatting)
+      const firstP = section.querySelector('p');
+      if (firstP) {
+        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+        const pText = normalize(firstP.textContent || '');
+        const titleText = normalize(chapter.title);
+        // Check if the paragraph is essentially the same as the title (fuzzy match)
+        if (pText === titleText || titleText.includes(pText) || pText.includes(titleText)) {
+          firstP.remove();
+        }
+      }
+    } else {
+      const h1 = document.createElement('h1');
+      h1.textContent = chapter.title;
+      article.appendChild(h1);
     }
+
     article.appendChild(section);
     return article;
   }
@@ -200,8 +227,19 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     bundleEnd = chapters[chapters.length - 1].number;
     currentChapter = bundleEnd;
 
-    navInfo.textContent = `Ch. ${bundleStart}–${bundleEnd}`;
-    headerTitle.textContent = `Chapters ${bundleStart}–${bundleEnd}`;
+    // Show word count in wordcount mode
+    let wordCountLabel = '';
+    if (bundleType === 'wordcount') {
+      const totalWords = chapters.reduce((sum, ch) => {
+        const text = ch.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        return sum + (text ? text.split(' ').length : 0);
+      }, 0);
+      const formatted = totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : String(totalWords);
+      wordCountLabel = ` · ${formatted} words`;
+    }
+
+    navInfo.textContent = `Ch. ${bundleStart}–${bundleEnd}${wordCountLabel}`;
+    headerTitle.textContent = `Chapters ${bundleStart}–${bundleEnd}${wordCountLabel}`;
 
     setProgress(slug, { lastChapter: bundleEnd });
     window.scrollTo(0, 0);
@@ -228,8 +266,8 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 
   function goPrev(): void {
     if (isBundleMode) {
-      const bundleSize = progress?.bundleSize || 200;
-      const prevStart = Math.max(1, bundleStart - bundleSize);
+      const currentBundleLength = bundleEnd - bundleStart + 1;
+      const prevStart = Math.max(1, bundleStart - currentBundleLength);
       renderBundle(prevStart);
     } else {
       if (currentChapter > 1) renderSingleChapter(currentChapter - 1);
@@ -244,6 +282,84 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === ' ') goNext();
     if (e.key === 'ArrowLeft') goPrev();
+  });
+
+  // --- CHAPTER SIDEBAR ---
+  const sidebarOverlay = document.getElementById('chapter-sidebar-overlay')!;
+  const sidebarList = document.getElementById('sidebar-list')!;
+  const sidebarClose = document.getElementById('sidebar-close')!;
+  const sidebarSearchInput = document.getElementById('sidebar-search-input') as HTMLInputElement;
+
+  import type { ChapterEntry } from '../../../scripts/bundle-loader';
+  let chapterEntries: ChapterEntry[] = [];
+  let sidebarLoaded = false;
+
+  function renderSidebarItems(entries: ChapterEntry[]): void {
+    sidebarList.innerHTML = '';
+    for (const entry of entries) {
+      const li = document.createElement('li');
+      li.className = 'sidebar-item';
+      if (entry.number >= bundleStart && entry.number <= bundleEnd) {
+        li.classList.add('active');
+      } else if (!isBundleMode && entry.number === currentChapter) {
+        li.classList.add('active');
+      }
+      li.innerHTML = `<span class="sidebar-num">${entry.number}</span><span class="sidebar-title">${entry.title}</span>`;
+      li.addEventListener('click', () => {
+        closeSidebar();
+        if (isBundleMode) {
+          renderBundle(entry.number);
+        } else {
+          renderSingleChapter(entry.number);
+        }
+      });
+      sidebarList.appendChild(li);
+    }
+  }
+
+  async function openSidebar(): Promise<void> {
+    sidebarOverlay.setAttribute('aria-hidden', 'false');
+    sidebarSearchInput.value = '';
+
+    if (!sidebarLoaded) {
+      sidebarList.innerHTML = '<li class="sidebar-loading">Loading chapters...</li>';
+      chapterEntries = await loadAllChapterEntries(slug);
+      sidebarLoaded = true;
+    }
+
+    renderSidebarItems(chapterEntries);
+
+    const activeItem = sidebarList.querySelector('.sidebar-item.active');
+    if (activeItem) {
+      activeItem.scrollIntoView({ block: 'center' });
+    }
+  }
+
+  function closeSidebar(): void {
+    sidebarOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  navInfo.addEventListener('click', openSidebar);
+  sidebarClose.addEventListener('click', closeSidebar);
+  sidebarOverlay.addEventListener('click', (e) => {
+    if (e.target === sidebarOverlay) closeSidebar();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebarOverlay.getAttribute('aria-hidden') === 'false') {
+      closeSidebar();
+    }
+  });
+
+  sidebarSearchInput.addEventListener('input', () => {
+    const query = sidebarSearchInput.value.toLowerCase().trim();
+    if (!query) {
+      renderSidebarItems(chapterEntries);
+      return;
+    }
+    const filtered = chapterEntries.filter(
+      (e) => e.title.toLowerCase().includes(query) || String(e.number).includes(query)
+    );
+    renderSidebarItems(filtered);
   });
 
   // --- INIT ---
@@ -388,6 +504,26 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
       setProgress(slug, { bundleSize: size });
     }
   });
+
+  // --- Save & Apply bundle settings ---
+  const saveBundleBtn = document.getElementById('save-bundle-btn')!;
+  saveBundleBtn.addEventListener('click', () => {
+    closeSettings();
+    const p = getProgress(slug);
+    if (p?.bundleMode) {
+      // Use bundleStart (beginning of current bundle) so resizing keeps the same start point
+      const start = bundleStart || 1;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('ch');
+      url.searchParams.set('bundle', `${start}-${start}`);
+      window.location.href = url.toString();
+    } else {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('bundle');
+      url.searchParams.set('ch', String(bundleStart || currentChapter));
+      window.location.href = url.toString();
+    }
+  });
 </script>
 
 <style>
@@ -495,6 +631,136 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 
   .nav-info {
     font-size: 0.8rem;
+    color: var(--color-text-muted);
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-xs) var(--space-sm);
+    cursor: pointer;
+  }
+
+  .nav-info:active {
+    background: var(--color-surface);
+  }
+
+  .chapter-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 200;
+  }
+
+  .chapter-sidebar-overlay[aria-hidden='true'] {
+    display: none;
+  }
+
+  .chapter-sidebar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 80%;
+    max-width: 320px;
+    background: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+    animation: slide-in 0.2s ease-out;
+  }
+
+  @keyframes slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--color-border);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .sidebar-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .sidebar-search {
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+  }
+
+  .sidebar-search-input {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.9rem;
+  }
+
+  .sidebar-search-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+
+  .sidebar-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sidebar-list :global(.sidebar-item) {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .sidebar-list :global(.sidebar-item:active) {
+    background: var(--color-surface);
+  }
+
+  .sidebar-list :global(.sidebar-item.active) {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    border-left: 3px solid var(--color-accent);
+  }
+
+  .sidebar-list :global(.sidebar-num) {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    min-width: 2.5em;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .sidebar-list :global(.sidebar-title) {
+    font-size: 0.85rem;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar-list :global(.sidebar-loading) {
+    padding: var(--space-lg);
+    text-align: center;
     color: var(--color-text-muted);
   }
 
