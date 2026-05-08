@@ -294,17 +294,23 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   let chapterEntries: ChapterEntry[] = [];
   let sidebarLoaded = false;
 
+  function cleanTitle(title: string, chapterNum: number): string {
+    // Strip "Chapter N:", "Chapter N -", "Chapter N " prefix (with or without separator)
+    const cleaned = title.replace(/^chapter\s*\d+\s*[:\-–—]?\s*/i, '').replace(/^[:\-–—\s]+/, '').trim();
+    return cleaned || title;
+  }
+
   function renderSidebarItems(entries: ChapterEntry[]): void {
     sidebarList.innerHTML = '';
     for (const entry of entries) {
       const li = document.createElement('li');
       li.className = 'sidebar-item';
-      if (entry.number >= bundleStart && entry.number <= bundleEnd) {
+      if (isBundleMode && entry.number >= bundleStart && entry.number <= bundleEnd) {
         li.classList.add('active');
       } else if (!isBundleMode && entry.number === currentChapter) {
         li.classList.add('active');
       }
-      li.innerHTML = `<span class="sidebar-num">${entry.number}</span><span class="sidebar-title">${entry.title}</span>`;
+      li.innerHTML = `<span class="sidebar-num">Ch. ${entry.number}</span><span class="sidebar-title">${cleanTitle(entry.title, entry.number)}</span>`;
       li.addEventListener('click', () => {
         closeSidebar();
         if (isBundleMode) {

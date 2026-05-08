@@ -34,7 +34,7 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     numberOfPages: novel.totalChapters,
   }}
 >
-  <main class="detail" id="detail-root" data-slug={slug}>
+  <main class="detail" id="detail-root" data-slug={slug} data-total={novel.totalChapters}>
     <header class="detail-header">
       <a href="/" class="back-btn touch-target" aria-label="Back to library">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -49,33 +49,42 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
         <img src={novel.cover} alt={novel.title} />
       </div>
       <div class="meta-info">
-        {novel.authors.length > 0 && <p class="authors">{novel.authors.join(', ')}</p>}
+        <p class="authors">{novel.authors.length > 0 ? novel.authors.join(', ') : 'Unknown Author'}</p>
         <p class="chapters">{novel.totalChapters} chapters</p>
-        {novel.genres.length > 0 && (
-          <div class="genres">
-            {novel.genres.map((g: string) => <span class="genre-tag">{g}</span>)}
-          </div>
-        )}
+        <div class="genres">
+          {novel.genres.length > 0
+            ? novel.genres.map((g: string) => <span class="genre-tag">{g}</span>)
+            : <span class="genre-tag muted">Uncategorized</span>
+          }
+        </div>
       </div>
     </section>
 
-    {novel.synopsis && (
-      <section class="synopsis">
-        <p>{novel.synopsis}</p>
-      </section>
-    )}
+    <section class="synopsis">
+      <p>{novel.synopsis || 'No synopsis available.'}</p>
+    </section>
 
     <section class="actions">
       <a href={`/novel/${slug}/read`} class="btn-primary" id="continue-btn">
         Start Reading
       </a>
+      <div class="reading-progress" id="reading-progress">
+        <div class="progress-info">
+          <span id="progress-label">0 / {novel.totalChapters} chapters</span>
+          <span id="progress-percent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
     </section>
 
     <section class="chapter-list-section">
       <div class="chapter-list-header">
         <h2>Chapters</h2>
-        <input type="search" id="chapter-search" placeholder="Search chapters..." class="chapter-search" />
+        <input type="search" id="chapter-search" placeholder="Search by title..." class="chapter-search" />
       </div>
+      <div class="chapter-tabs" id="chapter-tabs"></div>
       <div class="chapter-list" id="chapter-list"></div>
     </section>
   </main>
@@ -85,7 +94,7 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 <script>
   import { getProgress } from '../../scripts/storage';
   import { initTheme } from '../../scripts/theme';
-  import { getNovelInfo } from '../../scripts/bundle-loader';
+  import { loadAllChapterEntries } from '../../scripts/bundle-loader';
 
   initTheme();
 
@@ -94,52 +103,174 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 
   const progress = getProgress(slug);
   const continueBtn = document.getElementById('continue-btn');
-  if (progress && progress.lastChapter > 1 && continueBtn) {
-    continueBtn.textContent = `Continue Ch. ${progress.lastChapter}`;
-    continueBtn.setAttribute('href', `/novel/${slug}/read?ch=${progress.lastChapter}`);
+  const lastReadChapter = progress?.lastChapter || 0;
+  const isBundleMode = progress?.bundleMode || false;
+  const bundleSize = progress?.bundleSize || 10;
+
+  // In bundle mode, calculate the range that was last read
+  let lastReadStart = lastReadChapter;
+  let lastReadEnd = lastReadChapter;
+  if (isBundleMode && lastReadChapter > 0) {
+    // lastChapter stores the END of the last bundle, so start = end - size + 1
+    lastReadEnd = lastReadChapter;
+    lastReadStart = Math.max(1, lastReadChapter - bundleSize + 1);
   }
 
-  async function renderChapterList(): Promise<void> {
-    const info = await getNovelInfo(slug);
-    const listEl = document.getElementById('chapter-list');
-    const searchEl = document.getElementById('chapter-search') as HTMLInputElement | null;
-    if (!listEl) return;
+  if (lastReadChapter > 1 && continueBtn) {
+    if (progress?.bundleMode) {
+      continueBtn.textContent = `Continue Ch. ${lastReadChapter} (Bundle)`;
+      continueBtn.setAttribute('href', `/novel/${slug}/read?bundle=${lastReadChapter}-${lastReadChapter}`);
+    } else {
+      continueBtn.textContent = `Continue Ch. ${lastReadChapter}`;
+      continueBtn.setAttribute('href', `/novel/${slug}/read?ch=${lastReadChapter}`);
+    }
+  }
 
-    const chapters: number[] = [];
-    for (const bundle of info.bundles) {
-      const [start, end] = bundle.range.split('-').map(Number);
-      for (let i = start; i <= end; i++) {
-        chapters.push(i);
+  // Update progress bar
+  const totalChapters = Number(root.dataset.total || '0');
+  if (lastReadChapter > 0) {
+    const percent = Math.round((lastReadChapter / totalChapters) * 100);
+    const fillEl = document.getElementById('progress-fill');
+    const labelEl = document.getElementById('progress-label');
+    const percentEl = document.getElementById('progress-percent');
+    if (fillEl) fillEl.style.width = `${percent}%`;
+    if (labelEl) labelEl.textContent = `${lastReadChapter} / ${totalChapters} chapters`;
+    if (percentEl) percentEl.textContent = `${percent}%`;
+  }
+
+  interface ChapterEntry {
+    number: number;
+    title: string;
+  }
+
+  function cleanTitle(ch: ChapterEntry): string {
+    // Strip "Chapter N:", "Chapter N -", "Chapter N " prefix (with or without separator)
+    const cleaned = ch.title.replace(/^chapter\s*\d+\s*[:\-–—]?\s*/i, '').replace(/^[:\-–—\s]+/, '').trim();
+    return cleaned || ch.title;
+  }
+
+  let allEntries: ChapterEntry[] = [];
+  let activeTab = 0;
+  let isSearching = false;
+
+  const CHAPTERS_PER_TAB = 100;
+
+  const tabsEl = document.getElementById('chapter-tabs')!;
+  const listEl = document.getElementById('chapter-list')!;
+  const searchEl = document.getElementById('chapter-search') as HTMLInputElement;
+
+  function getTabs(entries: ChapterEntry[]): { label: string; start: number; end: number }[] {
+    if (entries.length === 0) return [];
+    const totalChapters = entries[entries.length - 1].number;
+    const tabs: { label: string; start: number; end: number }[] = [];
+    for (let i = 0; i < Math.ceil(totalChapters / CHAPTERS_PER_TAB); i++) {
+      const start = i * CHAPTERS_PER_TAB + 1;
+      const end = Math.min((i + 1) * CHAPTERS_PER_TAB, totalChapters);
+      tabs.push({ label: `${start}–${end}`, start, end });
+    }
+    return tabs;
+  }
+
+  function renderTabs(): void {
+    const tabs = getTabs(allEntries);
+    if (tabs.length <= 1) {
+      tabsEl.style.display = 'none';
+      return;
+    }
+    tabsEl.innerHTML = tabs.map((tab, i) =>
+      `<button class="tab-btn${i === activeTab ? ' active' : ''}" data-tab="${i}">${tab.label}</button>`
+    ).join('');
+
+    tabsEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.tab-btn') as HTMLElement | null;
+      if (!btn) return;
+      const tabIdx = Number(btn.dataset.tab);
+      if (tabIdx === activeTab) return;
+      activeTab = tabIdx;
+      isSearching = false;
+      searchEl.value = '';
+      renderTabs();
+      renderList();
+    });
+  }
+
+  function chapterItemHtml(ch: ChapterEntry): string {
+    const isInLastRead = isBundleMode
+      ? (ch.number >= lastReadStart && ch.number <= lastReadEnd)
+      : (ch.number === lastReadChapter);
+    const isEndMarker = isBundleMode ? (ch.number === lastReadEnd) : (ch.number === lastReadChapter);
+    const cls = `chapter-item${isInLastRead ? ' last-read' : ''}`;
+    const badge = isEndMarker && lastReadChapter > 0
+      ? `<span class="last-read-badge">${isBundleMode ? `${lastReadStart}–${lastReadEnd}` : 'Last Read'}</span>`
+      : '';
+    const href = isBundleMode
+      ? `/novel/${slug}/read?bundle=${ch.number}-${ch.number}`
+      : `/novel/${slug}/read?ch=${ch.number}`;
+    return `<a href="${href}" class="${cls}"><span class="ch-num">Ch. ${ch.number}</span><span class="ch-title">${cleanTitle(ch)}</span>${badge}</a>`;
+  }
+
+  function renderList(): void {
+    if (isSearching) return;
+    const tabs = getTabs(allEntries);
+    const tab = tabs[activeTab];
+    if (!tab) { listEl.innerHTML = ''; return; }
+
+    const filtered = allEntries.filter(ch => ch.number >= tab.start && ch.number <= tab.end);
+    listEl.innerHTML = filtered.map(chapterItemHtml).join('');
+  }
+
+  function renderSearchResults(query: string): void {
+    const q = query.toLowerCase();
+    const filtered = allEntries.filter(ch =>
+      ch.title.toLowerCase().includes(q) || String(ch.number).includes(q)
+    );
+    listEl.innerHTML = filtered.length > 0
+      ? filtered.map(chapterItemHtml).join('')
+      : '<div class="no-results">No chapters found</div>';
+  }
+
+  searchEl.addEventListener('input', () => {
+    const query = searchEl.value.trim();
+    if (!query) {
+      isSearching = false;
+      tabsEl.style.display = '';
+      renderTabs();
+      renderList();
+      return;
+    }
+    isSearching = true;
+    tabsEl.style.display = 'none';
+    renderSearchResults(query);
+  });
+
+  async function init(): Promise<void> {
+    listEl.innerHTML = '<div class="loading">Loading chapters...</div>';
+    allEntries = await loadAllChapterEntries(slug);
+
+    // Auto-select tab containing last-read chapter
+    if (lastReadChapter > 0) {
+      const tabIdx = Math.floor((lastReadChapter - 1) / CHAPTERS_PER_TAB);
+      const tabs = getTabs(allEntries);
+      if (tabIdx < tabs.length) {
+        activeTab = tabIdx;
       }
     }
 
-    function renderItems(filtered: number[]): void {
-      const visible = filtered.slice(0, 100);
-      listEl!.innerHTML = visible.map((num) =>
-        `<a href="/novel/${slug}/read?ch=${num}" class="chapter-item">Chapter ${num}</a>`
-      ).join('');
+    renderTabs();
+    renderList();
 
-      if (filtered.length > 100) {
-        listEl!.innerHTML += `<div class="load-more" id="load-more">Show more (${filtered.length - 100} remaining)</div>`;
-      }
-    }
-
-    renderItems(chapters);
-
-    if (searchEl) {
-      searchEl.addEventListener('input', () => {
-        const query = searchEl.value.trim();
-        if (!query) {
-          renderItems(chapters);
-          return;
+    // Scroll to last-read chapter
+    if (lastReadChapter > 0) {
+      requestAnimationFrame(() => {
+        const lastReadEl = listEl.querySelector('.chapter-item.last-read') as HTMLElement | null;
+        if (lastReadEl) {
+          lastReadEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }
-        const filtered = chapters.filter((ch) => String(ch).includes(query));
-        renderItems(filtered);
       });
     }
   }
 
-  renderChapterList();
+  init();
 </script>
 
 <style>
@@ -177,18 +308,18 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   }
 
   .cover-large {
-    width: 120px;
+    width: 140px;
     flex-shrink: 0;
     border-radius: var(--radius-md);
     overflow: hidden;
-    aspect-ratio: 3 / 4;
     background: var(--color-border);
   }
 
   .cover-large img {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
+    display: block;
+    border-radius: var(--radius-md);
   }
 
   .meta-info {
@@ -222,6 +353,11 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     border-radius: var(--radius-full);
   }
 
+  .genre-tag.muted {
+    background: var(--color-border);
+    color: var(--color-text-muted);
+  }
+
   .synopsis {
     margin-bottom: var(--space-lg);
     font-size: 0.85rem;
@@ -252,6 +388,34 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     transform: scale(0.98);
   }
 
+  .reading-progress {
+    margin-top: var(--space-md);
+  }
+
+  .progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-xs);
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 6px;
+    background: var(--color-border);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--color-accent);
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+  }
+
   .chapter-list-section {
     margin-bottom: var(--space-2xl);
   }
@@ -267,11 +431,12 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   .chapter-list-header h2 {
     font-size: 1rem;
     font-weight: 600;
+    white-space: nowrap;
   }
 
   .chapter-search {
     flex: 1;
-    max-width: 160px;
+    max-width: 200px;
     padding: var(--space-sm) var(--space-md);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-full);
@@ -285,27 +450,100 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
     border-color: var(--color-accent);
   }
 
+  .chapter-tabs :global(.tab-btn) {
+    display: inline-block;
+    padding: var(--space-xs) var(--space-sm);
+    margin-right: var(--space-xs);
+    margin-bottom: var(--space-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+    min-height: 32px;
+  }
+
+  .chapter-tabs :global(.tab-btn.active) {
+    background: var(--color-accent);
+    color: white;
+    border-color: var(--color-accent);
+  }
+
+  .chapter-tabs :global(.tab-btn:active) {
+    transform: scale(0.95);
+  }
+
+  .chapter-tabs {
+    margin-bottom: var(--space-md);
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: var(--space-xs);
+  }
+
+  .chapter-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
   .chapter-list :global(.chapter-item) {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
     border-bottom: 1px solid var(--color-border);
     color: var(--color-text);
     text-decoration: none;
     font-size: 0.85rem;
     min-height: 44px;
-    display: flex;
-    align-items: center;
   }
 
   .chapter-list :global(.chapter-item:active) {
     background: var(--color-surface);
   }
 
-  .chapter-list :global(.load-more) {
-    padding: var(--space-md);
+  .chapter-list :global(.chapter-item.last-read) {
+    background: var(--color-accent-soft);
+    border-left: 3px solid var(--color-accent);
+  }
+
+  .chapter-list :global(.last-read-badge) {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    background: var(--color-accent);
+    color: white;
+    border-radius: var(--radius-full);
+    margin-left: auto;
+  }
+
+  .chapter-list :global(.ch-num) {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    min-width: 48px;
+  }
+
+  .chapter-list :global(.ch-title) {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chapter-list :global(.no-results) {
+    padding: var(--space-lg);
     text-align: center;
-    color: var(--color-accent);
+    color: var(--color-text-muted);
     font-size: 0.85rem;
-    cursor: pointer;
+  }
+
+  .chapter-list :global(.loading) {
+    padding: var(--space-lg);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
   }
 </style>
