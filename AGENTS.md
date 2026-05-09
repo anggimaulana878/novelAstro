@@ -45,3 +45,12 @@ public/        → Unprocessed static files served at root
 - No CSS framework or UI library installed — styles are component-scoped `<style>` blocks by default
 - No SSR adapter — builds to static HTML only
 - `dist/` and `.astro/` are gitignored; never commit them
+
+
+<claude-mem-context>
+# Memory Context
+
+# [novelAstro] recent context, 2026-05-09 8:54am GMT+7
+
+No previous sessions found.
+</claude-mem-context>
