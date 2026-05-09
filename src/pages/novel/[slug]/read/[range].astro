@@ -84,9 +84,41 @@ if (chapters.length === 0) {
 // Detect primary language from first chapter
 const primaryLang = chapters[0]?.lang || 'en';
 
-// TODO: Calculate prev/next ranges
-const prevRange: string | null = null;
-const nextRange: string | null = null;
+// Calculate prev/next ranges
+let prevRange: string | null = null;
+let nextRange: string | null = null;
+
+if (mode === 'chapter') {
+  const batchSize = endChapter - startChapter + 1;
+  
+  // Previous batch
+  if (startChapter > 1) {
+    const prevEnd = startChapter - 1;
+    const prevStart = Math.max(1, prevEnd - batchSize + 1);
+    prevRange = `${prevStart}-${prevEnd}`;
+  }
+  
+  // Next batch
+  if (endChapter < novel.totalChapters) {
+    const nextStart = endChapter + 1;
+    const nextEnd = Math.min(novel.totalChapters, nextStart + batchSize - 1);
+    nextRange = `${nextStart}-${nextEnd}`;
+  }
+  
+} else if (mode === 'word') {
+  // Previous batch (same word count)
+  if (startChapter > 1) {
+    const prevStart = Math.max(1, startChapter - 1);
+    prevRange = `${prevStart}+${wordCount}`;
+  }
+  
+  // Next batch (start from last chapter + 1)
+  const lastChapter = chapters[chapters.length - 1]?.number || startChapter;
+  if (lastChapter < novel.totalChapters) {
+    const nextStart = lastChapter + 1;
+    nextRange = `${nextStart}+${wordCount}`;
+  }
+}
 ---
 
 <Layout
