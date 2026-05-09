@@ -7,8 +7,8 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   output: 'server',
   adapter: vercel({
-    functionPerRoute: true,
+    webAnalytics: { enabled: true }
   }),
-  site: 'https://novel.example.com',
+  site: 'https://novel-astro-inky.vercel.app',
   integrations: [sitemap()],
 });

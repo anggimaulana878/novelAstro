@@ -5,7 +5,9 @@ import { brotliDecompressSync } from 'node:zlib';
 import { detectLanguage, sanitizeContent } from './content.js';
 
 const IS_PRODUCTION = process.env.VERCEL === '1';
-const SITE_URL = process.env.SITE_URL || 'https://novel.example.com';
+const SITE_URL = IS_PRODUCTION 
+  ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://novel-astro-inky.vercel.app')
+  : 'http://localhost:4321';
 
 /**
  * Raw chapter data from bundle JSON

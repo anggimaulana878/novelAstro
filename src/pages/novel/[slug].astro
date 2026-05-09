@@ -4,6 +4,8 @@ import BottomNav from '../../components/BottomNav.astro';
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const prerender = true;
+
 export function getStaticPaths() {
   const indexPath = path.join(process.cwd(), 'public/novels/index.json');
   const data = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));

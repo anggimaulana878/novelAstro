@@ -2,5 +2,14 @@
   "buildCommand": "npm run build",
   "framework": "astro",
   "installCommand": "npm install",
-  "devCommand": "npm run dev"
+  "devCommand": "npm run dev",
+  "routes": [
+    {
+      "src": "/novels/(.*)",
+      "dest": "/novels/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    }
+  ]
 }

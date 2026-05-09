@@ -1,0 +1,2 @@
+# Don't ignore public directory - we need it deployed
+!public/
