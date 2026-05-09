@@ -6,7 +6,6 @@
     "node": "22.x"
   },
   "scripts": {
-    "prebuild": "node scripts/decompress-bundles.mjs",
     "predev": "node scripts/decompress-bundles.mjs",
     "dev": "astro dev",
     "build": "astro build",

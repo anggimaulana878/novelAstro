@@ -1,9 +1,9 @@
 // src/utils/bundle-loader-server.ts
 import fs from 'node:fs';
 import path from 'node:path';
+import { brotliDecompressSync } from 'node:zlib';
 import { detectLanguage, sanitizeContent } from './content.js';
 
-// Check if running in production (Vercel)
 const IS_PRODUCTION = process.env.VERCEL === '1';
 const SITE_URL = process.env.SITE_URL || 'https://novel.example.com';
 
@@ -141,18 +141,28 @@ async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> 
   let data: string;
   
   if (IS_PRODUCTION) {
-    const url = `${SITE_URL}/novels/${slug}/${bundleFile}`;
+    const brFile = bundleFile.endsWith('.json') ? `${bundleFile}.br` : bundleFile;
+    const url = `${SITE_URL}/novels/${slug}/${brFile}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Bundle not found: ${url}`);
     }
-    data = await response.text();
+    const compressed = await response.arrayBuffer();
+    const decompressed = brotliDecompressSync(Buffer.from(compressed));
+    data = decompressed.toString('utf-8');
   } else {
-    const bundlePath = path.join(process.cwd(), 'public', 'novels', slug, bundleFile);
-    if (!fs.existsSync(bundlePath)) {
-      throw new Error(`Bundle not found: ${bundlePath}`);
+    const decompressedPath = path.join(process.cwd(), 'public', 'novels', slug, bundleFile);
+    if (fs.existsSync(decompressedPath)) {
+      data = fs.readFileSync(decompressedPath, 'utf-8');
+    } else {
+      const brPath = `${decompressedPath}.br`;
+      if (!fs.existsSync(brPath)) {
+        throw new Error(`Bundle not found: ${brPath}`);
+      }
+      const compressed = fs.readFileSync(brPath);
+      const decompressed = brotliDecompressSync(compressed);
+      data = decompressed.toString('utf-8');
     }
-    data = fs.readFileSync(bundlePath, 'utf-8');
   }
   
   const bundle: RawBundle = JSON.parse(data);
