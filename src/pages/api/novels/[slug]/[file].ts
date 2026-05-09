@@ -21,35 +21,21 @@ export const GET: APIRoute = async ({ params }) => {
   }
   
   try {
-    const IS_PRODUCTION = process.env.VERCEL === '1';
     let data: string;
+    const basePath = path.join(process.cwd(), 'public', 'novels', slug);
     
-    if (IS_PRODUCTION) {
-      const staticDir = path.join(process.cwd(), '.vercel', 'output', 'static');
-      const brPath = path.join(staticDir, 'novels', slug, `${file}.br`);
-      
+    const decompressedPath = path.join(basePath, file);
+    if (fs.existsSync(decompressedPath)) {
+      data = fs.readFileSync(decompressedPath, 'utf-8');
+    } else {
+      const brPath = path.join(basePath, `${file}.br`);
       if (!fs.existsSync(brPath)) {
         console.error(`Bundle not found: ${brPath}`);
         return new Response('Bundle not found', { status: 404 });
       }
-      
       const compressed = fs.readFileSync(brPath);
       const decompressed = brotliDecompressSync(compressed);
       data = decompressed.toString('utf-8');
-    } else {
-      const decompressedPath = path.join(process.cwd(), 'public', 'novels', slug, file);
-      
-      if (fs.existsSync(decompressedPath)) {
-        data = fs.readFileSync(decompressedPath, 'utf-8');
-      } else {
-        const brPath = `${decompressedPath}.br`;
-        if (!fs.existsSync(brPath)) {
-          return new Response('Bundle not found', { status: 404 });
-        }
-        const compressed = fs.readFileSync(brPath);
-        const decompressed = brotliDecompressSync(compressed);
-        data = decompressed.toString('utf-8');
-      }
     }
     
     return new Response(data, {
