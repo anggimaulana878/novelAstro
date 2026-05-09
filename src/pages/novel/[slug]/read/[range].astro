@@ -184,28 +184,260 @@ const jsonLd = {
 >
   <div class="reader" id="reader-root">
     <header class="reader-header">
-      <a href={`/novel/${slug}`} class="back-btn">Back</a>
+      <a href={`/novel/${slug}`} class="back-btn" aria-label="Back to novel details">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
       <span class="header-title">{novel.title}</span>
+      <div class="header-spacer"></div>
     </header>
 
     <main class="reader-content" id="reader-content" role="main">
       <article id="reader-article" lang={primaryLang}>
         {chapters.map(chapter => (
           <section id={`chapter-${chapter.number}`} lang={chapter.lang}>
-            <h2>{chapter.title}</h2>
-            <div set:html={chapter.content} />
+            <h2 class="chapter-title">{chapter.title}</h2>
+            <div class="chapter-content" set:html={chapter.content} />
           </section>
         ))}
       </article>
     </main>
 
-    <nav class="reader-nav" aria-label="Batch navigation">
+    <nav class="reader-nav" aria-label="Chapter navigation">
       {prevRange && (
-        <a href={`/novel/${slug}/read/${prevRange}`} rel="prev">Previous</a>
+        <a href={`/novel/${slug}/read/${prevRange}`} class="nav-btn nav-prev" rel="prev">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Previous</span>
+        </a>
       )}
       {nextRange && (
-        <a href={`/novel/${slug}/read/${nextRange}`} rel="next">Next</a>
+        <a href={`/novel/${slug}/read/${nextRange}`} class="nav-btn nav-next" rel="next">
+          <span>Next</span>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
       )}
     </nav>
   </div>
 </Layout>
+
+<style>
+  .reader {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  .reader-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    padding-top: calc(var(--space-md) + var(--safe-top));
+    background-color: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    color: var(--color-text);
+    transition: background-color var(--transition-fast);
+  }
+
+  .back-btn:hover,
+  .back-btn:focus-visible {
+    background-color: var(--color-surface);
+  }
+
+  .header-title {
+    flex: 1;
+    font-size: var(--font-size-2);
+    font-weight: 600;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-spacer {
+    width: 40px;
+  }
+
+  /* Main Content */
+  .reader-content {
+    flex: 1;
+    padding: var(--space-xl) var(--space-lg);
+    padding-bottom: calc(var(--space-2xl) + var(--safe-bottom));
+  }
+
+  #reader-article {
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  /* Chapter Sections */
+  section {
+    margin-bottom: var(--space-2xl);
+  }
+
+  section:last-child {
+    margin-bottom: 0;
+  }
+
+  .chapter-title {
+    font-size: var(--font-size-5);
+    font-weight: 700;
+    line-height: 1.3;
+    margin-bottom: var(--space-xl);
+    color: var(--color-text);
+    letter-spacing: -0.02em;
+  }
+
+  /* Chapter Content Typography */
+  .chapter-content {
+    font-size: inherit;
+    line-height: var(--line-height);
+    letter-spacing: var(--letter-spacing);
+    color: var(--color-text);
+  }
+
+  .chapter-content :global(p) {
+    margin-bottom: var(--space-lg);
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+
+  .chapter-content :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .chapter-content :global(strong),
+  .chapter-content :global(b) {
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .chapter-content :global(em),
+  .chapter-content :global(i) {
+    font-style: italic;
+  }
+
+  .chapter-content :global(a) {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+
+  .chapter-content :global(a:hover) {
+    text-decoration-thickness: 2px;
+  }
+
+  /* Navigation */
+  .reader-nav {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    padding-bottom: calc(var(--space-lg) + var(--safe-bottom));
+    background-color: var(--color-bg);
+    border-top: 1px solid var(--color-border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .nav-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    font-size: var(--font-size-2);
+    font-weight: 500;
+    color: var(--color-text);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+  }
+
+  .nav-btn:hover,
+  .nav-btn:focus-visible {
+    background-color: var(--color-accent-soft);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .nav-prev {
+    justify-content: flex-start;
+  }
+
+  .nav-next {
+    justify-content: flex-end;
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .reader-header {
+      padding: var(--space-sm) var(--space-md);
+      padding-top: calc(var(--space-sm) + var(--safe-top));
+    }
+
+    .header-title {
+      font-size: var(--font-size-1);
+    }
+
+    .reader-content {
+      padding: var(--space-lg) var(--space-md);
+    }
+
+    .chapter-title {
+      font-size: var(--font-size-4);
+    }
+
+    .reader-nav {
+      padding: var(--space-md);
+      padding-bottom: calc(var(--space-md) + var(--safe-bottom));
+    }
+
+    .nav-btn span {
+      display: none;
+    }
+  }
+
+  /* Print Styles */
+  @media print {
+    .reader-header,
+    .reader-nav {
+      display: none;
+    }
+
+    .reader-content {
+      padding: 0;
+    }
+
+    .chapter-content :global(p) {
+      text-align: left;
+      hyphens: none;
+    }
+  }
+</style>

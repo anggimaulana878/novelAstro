@@ -68,10 +68,29 @@ function sanitizeAttributes(attrs: string): string {
  * Sanitize HTML content for Google Assistant compatibility
  * Removes dangerous tags, converts divs to semantic tags, strips inline styles
  * @param html - Raw HTML content
+ * @param chapterTitle - Optional chapter title to remove duplicate headings
  * @returns Sanitized HTML
  */
-export function sanitizeContent(html: string): string {
+export function sanitizeContent(html: string, chapterTitle?: string): string {
   let clean = html;
+  
+  // Remove duplicate chapter title headings if title is provided
+  if (chapterTitle) {
+    // Normalize title for comparison (remove extra spaces, case-insensitive)
+    const normalizedTitle = chapterTitle.trim().toLowerCase().replace(/\s+/g, ' ');
+    
+    // Remove first h1-h6 if it matches the chapter title
+    clean = clean.replace(/^<h[1-6][^>]*>(.*?)<\/h[1-6]>/i, (match, content) => {
+      const normalizedContent = content.trim().toLowerCase().replace(/\s+/g, ' ');
+      return normalizedContent === normalizedTitle ? '' : match;
+    });
+    
+    // Remove first paragraph if it matches the chapter title
+    clean = clean.replace(/^<p[^>]*>(.*?)<\/p>/i, (match, content) => {
+      const normalizedContent = content.trim().toLowerCase().replace(/\s+/g, ' ');
+      return normalizedContent === normalizedTitle ? '' : match;
+    });
+  }
   
   // Remove dangerous tags completely
   const dangerousTags = ['script', 'style', 'button', 'form', 'input', 'iframe'];

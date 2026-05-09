@@ -173,10 +173,7 @@ export async function loadChapterRange(
   for (const bundle of bundles) {
     for (const rawChapter of bundle.chapters) {
       if (rawChapter.id >= start && rawChapter.id <= end) {
-        // Sanitize content
-        const sanitized = sanitizeContent(rawChapter.body);
-        
-        // Detect language
+        const sanitized = sanitizeContent(rawChapter.body, rawChapter.title);
         const lang = detectLanguage(sanitized);
         
         result.push({
@@ -247,12 +244,10 @@ export async function loadChaptersUntilWordCount(
     
     // Check if adding this chapter would exceed target
     if (totalWords + chapterWords > targetWords && result.length > 0) {
-      // Stop here, don't include this chapter
       break;
     }
     
-    // Sanitize and add chapter
-    const sanitized = sanitizeContent(rawChapter.body);
+    const sanitized = sanitizeContent(rawChapter.body, rawChapter.title);
     const lang = detectLanguage(sanitized);
     
     result.push({
