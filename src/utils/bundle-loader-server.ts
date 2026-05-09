@@ -197,3 +197,77 @@ export async function loadChapterRange(
   
   return result;
 }
+
+/**
+ * Count words in text (strips HTML first)
+ * @param html - HTML content
+ * @returns Word count
+ */
+function countWords(html: string): number {
+  const plainText = html.replace(/<[^>]*>/g, '');
+  const words = plainText.split(/\s+/).filter(w => w.length > 0);
+  return words.length;
+}
+
+/**
+ * Load chapters until word count target is reached
+ * Stops before exceeding the target
+ * @param slug - Novel slug
+ * @param startChapter - Starting chapter number
+ * @param targetWords - Target word count
+ * @returns Array of processed chapters
+ */
+export async function loadChaptersUntilWordCount(
+  slug: string,
+  startChapter: number,
+  targetWords: number
+): Promise<Chapter[]> {
+  const info = await getNovelInfo(slug);
+  const result: Chapter[] = [];
+  let totalWords = 0;
+  let currentChapter = startChapter;
+  
+  // Load chapters one by one until target reached
+  while (currentChapter <= info.totalChapters && totalWords < targetWords) {
+    // Find bundle for current chapter
+    const bundle = findBundleForChapter(info, currentChapter);
+    if (!bundle) {
+      break; // No more chapters
+    }
+    
+    // Load bundle
+    const bundleData = await loadBundle(slug, bundle.file);
+    
+    // Find chapter in bundle
+    const rawChapter = bundleData.chapters.find(ch => ch.id === currentChapter);
+    if (!rawChapter) {
+      currentChapter++;
+      continue;
+    }
+    
+    // Count words in this chapter
+    const chapterWords = countWords(rawChapter.body);
+    
+    // Check if adding this chapter would exceed target
+    if (totalWords + chapterWords > targetWords && result.length > 0) {
+      // Stop here, don't include this chapter
+      break;
+    }
+    
+    // Sanitize and add chapter
+    const sanitized = sanitizeContent(rawChapter.body);
+    const lang = detectLanguage(sanitized);
+    
+    result.push({
+      number: rawChapter.id,
+      title: rawChapter.title,
+      content: sanitized,
+      lang,
+    });
+    
+    totalWords += chapterWords;
+    currentChapter++;
+  }
+  
+  return result;
+}
