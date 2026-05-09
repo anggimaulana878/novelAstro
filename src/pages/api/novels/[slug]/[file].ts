@@ -22,23 +22,19 @@ export const GET: APIRoute = async ({ params }) => {
   
   try {
     const IS_PRODUCTION = process.env.VERCEL === '1';
-    const SITE_URL = IS_PRODUCTION 
-      ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://novel-astro-inky.vercel.app')
-      : 'http://localhost:4321';
-    
     let data: string;
     
     if (IS_PRODUCTION) {
-      const brFile = `${file}.br`;
-      const url = `${SITE_URL}/novels/${slug}/${brFile}`;
-      const response = await fetch(url);
+      const staticDir = path.join(process.cwd(), '.vercel', 'output', 'static');
+      const brPath = path.join(staticDir, 'novels', slug, `${file}.br`);
       
-      if (!response.ok) {
+      if (!fs.existsSync(brPath)) {
+        console.error(`Bundle not found: ${brPath}`);
         return new Response('Bundle not found', { status: 404 });
       }
       
-      const compressed = await response.arrayBuffer();
-      const decompressed = brotliDecompressSync(Buffer.from(compressed));
+      const compressed = fs.readFileSync(brPath);
+      const decompressed = brotliDecompressSync(compressed);
       data = decompressed.toString('utf-8');
     } else {
       const decompressedPath = path.join(process.cwd(), 'public', 'novels', slug, file);
