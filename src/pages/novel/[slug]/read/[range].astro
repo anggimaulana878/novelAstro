@@ -1,0 +1,123 @@
+---
+// src/pages/novel/[slug]/read/[range].astro
+import Layout from '../../../../layouts/Layout.astro';
+import { loadChapterRange, loadChaptersUntilWordCount } from '../../../../utils/bundle-loader-server';
+import { getNovelInfo } from '../../../../utils/bundle-loader-server';
+import type { Chapter } from '../../../../utils/bundle-loader-server';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// SSR mode - no static paths
+export function getStaticPaths() {
+  return [];
+}
+
+const { slug, range } = Astro.params;
+
+// Validate params
+if (!slug || !range) {
+  return Astro.redirect('/');
+}
+
+// Load novel info
+const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
+
+if (!novel) {
+  return Astro.redirect('/');
+}
+
+// Parse range parameter
+let chapters: Chapter[] = [];
+let mode: 'chapter' | 'word' = 'chapter';
+let startChapter = 1;
+let endChapter = 1;
+let wordCount = 0;
+
+try {
+  if (range.includes('+')) {
+    // Word count mode: "50+15000"
+    mode = 'word';
+    const [start, words] = range.split('+').map(Number);
+    
+    if (isNaN(start) || isNaN(words) || start < 1 || words < 1) {
+      return Astro.redirect(`/novel/${slug}/read/1`);
+    }
+    
+    startChapter = start;
+    wordCount = words;
+    chapters = await loadChaptersUntilWordCount(slug, start, words);
+    
+  } else if (range.includes('-')) {
+    // Chapter range mode: "1-10"
+    mode = 'chapter';
+    let [start, end] = range.split('-').map(Number);
+    
+    if (isNaN(start) || isNaN(end) || start < 1 || end < 1) {
+      return Astro.redirect(`/novel/${slug}/read/1`);
+    }
+    
+    // Swap if start > end
+    if (start > end) {
+      [start, end] = [end, start];
+    }
+    
+    startChapter = start;
+    endChapter = end;
+    chapters = await loadChapterRange(slug, start, end);
+    
+  } else {
+    // Invalid format, redirect to single mode
+    return Astro.redirect(`/novel/${slug}/read/${range}`);
+  }
+} catch (error) {
+  console.error('Error loading chapters:', error);
+  return Astro.redirect(`/novel/${slug}/read/1`);
+}
+
+// If no chapters loaded, redirect
+if (chapters.length === 0) {
+  return Astro.redirect(`/novel/${slug}/read/1`);
+}
+
+// Detect primary language from first chapter
+const primaryLang = chapters[0]?.lang || 'en';
+
+// TODO: Calculate prev/next ranges
+const prevRange: string | null = null;
+const nextRange: string | null = null;
+---
+
+<Layout
+  title={`Reading - ${novel.title}`}
+  canonicalPath={`/novel/${slug}/read/${range}`}
+  description={`Read ${novel.title} chapters online`}
+>
+  <div class="reader" id="reader-root">
+    <header class="reader-header">
+      <a href={`/novel/${slug}`} class="back-btn">Back</a>
+      <span class="header-title">{novel.title}</span>
+    </header>
+
+    <main class="reader-content" id="reader-content" role="main">
+      <article id="reader-article" lang={primaryLang}>
+        {chapters.map(chapter => (
+          <section id={`chapter-${chapter.number}`} lang={chapter.lang}>
+            <h2>{chapter.title}</h2>
+            <div set:html={chapter.content} />
+          </section>
+        ))}
+      </article>
+    </main>
+
+    <nav class="reader-nav" aria-label="Batch navigation">
+      {prevRange && (
+        <a href={`/novel/${slug}/read/${prevRange}`} rel="prev">Previous</a>
+      )}
+      {nextRange && (
+        <a href={`/novel/${slug}/read/${nextRange}`} rel="next">Next</a>
+      )}
+    </nav>
+  </div>
+</Layout>
