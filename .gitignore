@@ -25,3 +25,4 @@ pnpm-debug.log*
 
 # decompressed novel bundles (generated from .json.br)
 public/novels/*/vol-*.json
+.vercel/

@@ -1,8 +1,0 @@
----
-// Redirect to single chapter mode (chapter 1)
-// This file is deprecated - bulk mode uses [range].astro
-const { slug } = Astro.params;
-return Astro.redirect(`/novel/${slug}/read/1`, 301);
----
-
-<!-- Redirect only - no content rendered -->
