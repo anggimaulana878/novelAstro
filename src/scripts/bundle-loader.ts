@@ -84,7 +84,7 @@ async function fetchBundle(slug: string, bundleFile: string): Promise<Chapter[]>
   if (cached) return cached;
 
   const jsonFile = bundleFile.replace(/\.br$/, '');
-  const res = await fetch(`/novels/${slug}/${jsonFile}`);
+  const res = await fetch(`/api/novels/${slug}/${jsonFile}`);
   if (!res.ok) throw new Error(`Failed to load bundle ${jsonFile} for ${slug}`);
 
   const raw: RawBundle = await res.json();

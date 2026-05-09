@@ -246,29 +246,34 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   });
 
   async function init(): Promise<void> {
-    listEl.innerHTML = '<div class="loading">Loading chapters...</div>';
-    allEntries = await loadAllChapterEntries(slug);
+    try {
+      listEl.innerHTML = '<div class="loading">Loading chapters...</div>';
+      allEntries = await loadAllChapterEntries(slug);
 
-    // Auto-select tab containing last-read chapter
-    if (lastReadChapter > 0) {
-      const tabIdx = Math.floor((lastReadChapter - 1) / CHAPTERS_PER_TAB);
-      const tabs = getTabs(allEntries);
-      if (tabIdx < tabs.length) {
-        activeTab = tabIdx;
-      }
-    }
-
-    renderTabs();
-    renderList();
-
-    // Scroll to last-read chapter
-    if (lastReadChapter > 0) {
-      requestAnimationFrame(() => {
-        const lastReadEl = listEl.querySelector('.chapter-item.last-read') as HTMLElement | null;
-        if (lastReadEl) {
-          lastReadEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // Auto-select tab containing last-read chapter
+      if (lastReadChapter > 0) {
+        const tabIdx = Math.floor((lastReadChapter - 1) / CHAPTERS_PER_TAB);
+        const tabs = getTabs(allEntries);
+        if (tabIdx < tabs.length) {
+          activeTab = tabIdx;
         }
-      });
+      }
+
+      renderTabs();
+      renderList();
+
+      // Scroll to last-read chapter
+      if (lastReadChapter > 0) {
+        requestAnimationFrame(() => {
+          const lastReadEl = listEl.querySelector('.chapter-item.last-read') as HTMLElement | null;
+          if (lastReadEl) {
+            lastReadEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load chapters:', error);
+      listEl.innerHTML = '<div class="error">Failed to load chapters. Please try again later.</div>';
     }
   }
 
