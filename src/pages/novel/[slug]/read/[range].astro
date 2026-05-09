@@ -75,17 +75,26 @@ try {
     chapters = await loadChapterRange(slug, start, end);
     
   } else {
-    // Invalid format, redirect to single mode
-    return Astro.redirect(`/novel/${slug}/read/${range}`);
+    // Single chapter mode: just a number like "1"
+    const chapterNum = Number(range);
+    
+    if (isNaN(chapterNum) || chapterNum < 1) {
+      return Astro.redirect(`/novel/${slug}`);
+    }
+    
+    mode = 'chapter';
+    startChapter = chapterNum;
+    endChapter = chapterNum;
+    chapters = await loadChapterRange(slug, chapterNum, chapterNum);
   }
 } catch (error) {
   console.error('Error loading chapters:', error);
-  return Astro.redirect(`/novel/${slug}/read/1`);
+  return Astro.redirect(`/novel/${slug}`);
 }
 
 // If no chapters loaded, redirect
 if (chapters.length === 0) {
-  return Astro.redirect(`/novel/${slug}/read/1`);
+  return Astro.redirect(`/novel/${slug}`);
 }
 
 // Detect primary language from first chapter
