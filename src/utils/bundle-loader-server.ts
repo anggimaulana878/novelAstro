@@ -1,6 +1,7 @@
 // src/utils/bundle-loader-server.ts
 import fs from 'node:fs';
 import path from 'node:path';
+import { detectLanguage, sanitizeContent } from './content.js';
 
 /**
  * Raw chapter data from bundle JSON
@@ -141,4 +142,58 @@ async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> 
   // Cache and return
   bundleCache.set(cacheKey, bundle);
   return bundle;
+}
+
+/**
+ * Load a range of chapters
+ * @param slug - Novel slug
+ * @param start - Start chapter number
+ * @param end - End chapter number
+ * @returns Array of processed chapters
+ */
+export async function loadChapterRange(
+  slug: string,
+  start: number,
+  end: number
+): Promise<Chapter[]> {
+  const info = await getNovelInfo(slug);
+  const result: Chapter[] = [];
+  
+  // Find all bundles needed for this range
+  const neededBundles = new Set<BundleInfo>();
+  for (let i = start; i <= end; i++) {
+    const bundle = findBundleForChapter(info, i);
+    if (bundle) {
+      neededBundles.add(bundle);
+    }
+  }
+  
+  // Load all needed bundles
+  const bundlePromises = [...neededBundles].map(b => loadBundle(slug, b.file));
+  const bundles = await Promise.all(bundlePromises);
+  
+  // Extract chapters in range
+  for (const bundle of bundles) {
+    for (const rawChapter of bundle.chapters) {
+      if (rawChapter.id >= start && rawChapter.id <= end) {
+        // Sanitize content
+        const sanitized = sanitizeContent(rawChapter.body);
+        
+        // Detect language
+        const lang = detectLanguage(sanitized);
+        
+        result.push({
+          number: rawChapter.id,
+          title: rawChapter.title,
+          content: sanitized,
+          lang,
+        });
+      }
+    }
+  }
+  
+  // Sort by chapter number
+  result.sort((a, b) => a.number - b.number);
+  
+  return result;
 }
