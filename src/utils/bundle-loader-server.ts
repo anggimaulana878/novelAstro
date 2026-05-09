@@ -88,23 +88,12 @@ export async function getNovelInfo(slug: string): Promise<NovelInfo> {
     return cached;
   }
   
-  let data: string;
-  
-  if (IS_PRODUCTION) {
-    const url = `${SITE_URL}/novels/${slug}/info.json`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Novel info not found: ${slug}`);
-    }
-    data = await response.text();
-  } else {
-    const infoPath = path.join(process.cwd(), 'public', 'novels', slug, 'info.json');
-    if (!fs.existsSync(infoPath)) {
-      throw new Error(`Novel info not found: ${slug}`);
-    }
-    data = fs.readFileSync(infoPath, 'utf-8');
+  const infoPath = path.join(process.cwd(), 'public', 'novels', slug, 'info.json');
+  if (!fs.existsSync(infoPath)) {
+    throw new Error(`Novel info not found: ${slug}`);
   }
   
+  const data = fs.readFileSync(infoPath, 'utf-8');
   const info: NovelInfo = JSON.parse(data);
   infoCache.set(slug, info);
   return info;
