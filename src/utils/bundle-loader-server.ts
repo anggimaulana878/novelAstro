@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { detectLanguage, sanitizeContent } from './content.js';
 
+// Check if running in production (Vercel)
+const IS_PRODUCTION = process.env.VERCEL === '1';
+const SITE_URL = process.env.SITE_URL || 'https://novel.example.com';
+
 /**
  * Raw chapter data from bundle JSON
  */
@@ -77,23 +81,29 @@ const infoCache = new Map<string, NovelInfo>();
  * @returns Novel metadata
  */
 export async function getNovelInfo(slug: string): Promise<NovelInfo> {
-  // Check cache first
   const cached = infoCache.get(slug);
   if (cached) {
     return cached;
   }
   
-  // Load from filesystem
-  const infoPath = path.join(process.cwd(), 'public', 'novels', slug, 'info.json');
+  let data: string;
   
-  if (!fs.existsSync(infoPath)) {
-    throw new Error(`Novel info not found: ${slug}`);
+  if (IS_PRODUCTION) {
+    const url = `${SITE_URL}/novels/${slug}/info.json`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Novel info not found: ${slug}`);
+    }
+    data = await response.text();
+  } else {
+    const infoPath = path.join(process.cwd(), 'public', 'novels', slug, 'info.json');
+    if (!fs.existsSync(infoPath)) {
+      throw new Error(`Novel info not found: ${slug}`);
+    }
+    data = fs.readFileSync(infoPath, 'utf-8');
   }
   
-  const data = fs.readFileSync(infoPath, 'utf-8');
   const info: NovelInfo = JSON.parse(data);
-  
-  // Cache and return
   infoCache.set(slug, info);
   return info;
 }
@@ -123,23 +133,29 @@ function findBundleForChapter(info: NovelInfo, chapterNum: number): BundleInfo |
 async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> {
   const cacheKey = `${slug}/${bundleFile}`;
   
-  // Check cache first
   const cached = bundleCache.get(cacheKey);
   if (cached) {
     return cached;
   }
   
-  // Load from filesystem (decompressed .json file)
-  const bundlePath = path.join(process.cwd(), 'public', 'novels', slug, bundleFile);
+  let data: string;
   
-  if (!fs.existsSync(bundlePath)) {
-    throw new Error(`Bundle not found: ${bundlePath}`);
+  if (IS_PRODUCTION) {
+    const url = `${SITE_URL}/novels/${slug}/${bundleFile}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Bundle not found: ${url}`);
+    }
+    data = await response.text();
+  } else {
+    const bundlePath = path.join(process.cwd(), 'public', 'novels', slug, bundleFile);
+    if (!fs.existsSync(bundlePath)) {
+      throw new Error(`Bundle not found: ${bundlePath}`);
+    }
+    data = fs.readFileSync(bundlePath, 'utf-8');
   }
   
-  const data = fs.readFileSync(bundlePath, 'utf-8');
   const bundle: RawBundle = JSON.parse(data);
-  
-  // Cache and return
   bundleCache.set(cacheKey, bundle);
   return bundle;
 }

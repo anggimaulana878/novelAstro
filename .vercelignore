@@ -1,0 +1,7 @@
+# Exclude large bundle files from serverless function
+public/novels/**/*.json
+public/novels/**/*.json.br
+
+# Keep metadata files
+!public/novels/index.json
+!public/novels/*/info.json

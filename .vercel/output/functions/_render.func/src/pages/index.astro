@@ -1,0 +1,564 @@
+---
+import Layout from '../layouts/Layout.astro';
+import BottomNav from '../components/BottomNav.astro';
+---
+
+<Layout title="Novel Reader">
+  <main class="home">
+    <!-- HEADER -->
+    <header class="home-header">
+      <div class="header-top">
+        <div>
+          <h1 class="library-title">Library</h1>
+          <p class="library-subtitle">Happy reading</p>
+        </div>
+        <div class="header-icons">
+          <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">
+            <svg class="moon-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M17 10.5C16.1 14.4 12.6 17 8.5 17C4.4 17 1 13.6 1 9.5C1 5.4 3.6 1.9 7.5 1C6.6 2.1 6 3.5 6 5C6 8.3 8.7 11 12 11C13.5 11 14.9 10.4 16 9.5L17 10.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <svg class="sun-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none">
+              <circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M10 1V3M10 17V19M19 10H17M3 10H1M16.5 3.5L15 5M5 15L3.5 16.5M16.5 16.5L15 15M5 5L3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <a href="/history" class="icon-btn" aria-label="Reading History">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M10 6V10L12.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+
+        </div>
+      </div>
+    </header>
+
+    <!-- SEARCH BAR -->
+    <div class="search-bar">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M12.5 12.5L16.5 16.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <input type="text" placeholder="Search title or author..." id="search-input" />
+    </div>
+
+    <!-- FILTER TABS -->
+    <div class="filter-tabs">
+      <button class="tab active" data-filter="all">All</button>
+      <button class="tab" data-filter="ongoing">Ongoing</button>
+      <button class="tab" data-filter="completed">Completed</button>
+    </div>
+
+    <!-- LAST READ CARD -->
+    <div class="last-read-card" id="last-read" style="display:none">
+      <div class="last-read-info">
+        <span class="last-read-label">📖 LAST READ</span>
+        <h3 class="last-read-title"></h3>
+        <p class="last-read-chapter"></p>
+        <a class="continue-btn">Continue</a>
+      </div>
+      <img class="last-read-cover" alt="" />
+    </div>
+
+    <!-- YOUR LIBRARY -->
+    <div class="library-section">
+      <h2 class="section-title">Your Library</h2>
+      <span class="book-count" id="book-count"></span>
+    </div>
+
+    <!-- GRID -->
+    <div class="novel-grid" id="novel-grid">
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+    </div>
+  </main>
+  <BottomNav active="home" />
+</Layout>
+
+<script>
+  import { initTheme } from '../scripts/theme';
+  import { getAllProgress } from '../scripts/storage';
+
+  initTheme();
+
+  interface NovelCatalogItem {
+    id: string;
+    title: string;
+    slug: string;
+    cover: string;
+    totalChapters: number;
+    authors: string[];
+    genres: string[];
+  }
+
+  let allNovels: NovelCatalogItem[] = [];
+  let currentFilter: 'all' | 'ongoing' | 'completed' = 'all';
+  let searchQuery = '';
+
+  async function loadCatalog(): Promise<void> {
+    const res = await fetch('/novels/index.json');
+    const data: { novels: NovelCatalogItem[] } = await res.json();
+    allNovels = data.novels;
+    const progress = getAllProgress();
+
+    // Update book count
+    const bookCountEl = document.getElementById('book-count');
+    if (bookCountEl) {
+      bookCountEl.textContent = `${allNovels.length} books`;
+    }
+
+    // Find last read novel
+    let lastReadNovel: NovelCatalogItem | null = null;
+    let lastReadProgress: { lastChapter: number; lastReadAt: string; totalChapters: number } | null = null;
+    let mostRecentTime = 0;
+
+    for (const novel of allNovels) {
+      const p = progress[novel.slug];
+      if (p && p.lastReadAt) {
+        const time = new Date(p.lastReadAt).getTime();
+        if (time > mostRecentTime) {
+          mostRecentTime = time;
+          lastReadNovel = novel;
+          lastReadProgress = { ...p, totalChapters: novel.totalChapters };
+        }
+      }
+    }
+
+    // Show last read card if exists
+    if (lastReadNovel && lastReadProgress) {
+      const lastReadCard = document.getElementById('last-read');
+      if (lastReadCard) {
+        lastReadCard.style.display = 'flex';
+        const titleEl = lastReadCard.querySelector('.last-read-title');
+        const chapterEl = lastReadCard.querySelector('.last-read-chapter');
+        const coverEl = lastReadCard.querySelector('.last-read-cover') as HTMLImageElement;
+        const continueBtn = lastReadCard.querySelector('.continue-btn') as HTMLAnchorElement;
+
+        if (titleEl) titleEl.textContent = lastReadNovel.title;
+        if (chapterEl) {
+          chapterEl.textContent = `Chapter ${lastReadProgress.lastChapter}–${lastReadProgress.totalChapters}`;
+        }
+        if (coverEl) {
+          coverEl.src = lastReadNovel.cover;
+          coverEl.alt = lastReadNovel.title;
+        }
+        if (continueBtn) {
+          continueBtn.href = `/novel/${lastReadNovel.slug}`;
+        }
+      }
+    }
+
+    renderGrid();
+  }
+
+  function renderGrid(): void {
+    const progress = getAllProgress();
+    const grid = document.getElementById('novel-grid');
+    if (!grid) return;
+
+    let filtered = allNovels;
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(novel => 
+        novel.title.toLowerCase().includes(query) ||
+        novel.authors.some(author => author.toLowerCase().includes(query))
+      );
+    }
+
+    // Apply status filter
+    if (currentFilter === 'ongoing') {
+      filtered = filtered.filter(novel => {
+        const p = progress[novel.slug];
+        return p && p.lastChapter < novel.totalChapters;
+      });
+    } else if (currentFilter === 'completed') {
+      filtered = filtered.filter(novel => {
+        const p = progress[novel.slug];
+        return p && p.lastChapter >= novel.totalChapters;
+      });
+    }
+
+    grid.innerHTML = filtered.map((novel, index) => {
+      return `
+        <a href="/novel/${novel.slug}" class="novel-card" style="animation-delay: ${index * 50}ms">
+          <img class="cover-img" src="${novel.cover}" alt="${novel.title}" loading="lazy" />
+          <span class="card-title">${novel.title}</span>
+        </a>
+      `;
+    }).join('');
+  }
+
+  // Search input handler
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = (e.target as HTMLInputElement).value;
+      renderGrid();
+    });
+  }
+
+  // Filter tabs handler
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentFilter = (tab as HTMLElement).dataset.filter as 'all' | 'ongoing' | 'completed';
+      renderGrid();
+    });
+  });
+
+  // Theme toggle handler
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+
+      // Toggle icon visibility
+      const moonIcon = themeToggle.querySelector('.moon-icon') as SVGElement;
+      const sunIcon = themeToggle.querySelector('.sun-icon') as SVGElement;
+      if (newTheme === 'dark') {
+        if (moonIcon) moonIcon.style.display = 'none';
+        if (sunIcon) sunIcon.style.display = 'block';
+      } else {
+        if (moonIcon) moonIcon.style.display = 'block';
+        if (sunIcon) sunIcon.style.display = 'none';
+      }
+    });
+
+    // Set initial icon state
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const moonIcon = themeToggle.querySelector('.moon-icon') as SVGElement;
+    const sunIcon = themeToggle.querySelector('.sun-icon') as SVGElement;
+    if (currentTheme === 'dark') {
+      if (moonIcon) moonIcon.style.display = 'none';
+      if (sunIcon) sunIcon.style.display = 'block';
+    }
+  }
+
+  loadCatalog();
+</script>
+
+<style>
+  /* === Keyframes === */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  /* === Layout === */
+  .home {
+    padding: calc(var(--safe-top) + var(--space-md)) var(--space-md) var(--space-md);
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* === Header === */
+  .home-header {
+    margin-bottom: var(--space-lg);
+  }
+
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+
+  .library-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-bottom: var(--space-xs);
+  }
+
+  .library-subtitle {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .header-icons {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .icon-btn:hover {
+    background: var(--color-border);
+    color: var(--color-text);
+  }
+
+  /* === Search Bar === */
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    padding: 12px 16px;
+    margin-bottom: var(--space-md);
+  }
+
+  .search-bar svg {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+  }
+
+  .search-bar input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--color-text);
+    font-size: 0.9375rem;
+  }
+
+  .search-bar input::placeholder {
+    color: var(--color-text-muted);
+  }
+
+  /* === Filter Tabs === */
+  .filter-tabs {
+    display: flex;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-lg);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    padding: 8px 16px;
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+  }
+
+  .tab:hover {
+    background: var(--color-border);
+  }
+
+  .tab.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+  }
+
+  /* === Last Read Card === */
+  .last-read-card {
+    display: flex;
+    gap: var(--space-md);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md);
+    margin-bottom: var(--space-lg);
+  }
+
+  .last-read-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .last-read-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #10b981;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .last-read-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.4;
+  }
+
+  .last-read-chapter {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .continue-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text);
+    background: transparent;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    align-self: flex-start;
+    margin-top: var(--space-xs);
+  }
+
+  .continue-btn:hover {
+    background: var(--color-border);
+  }
+
+  .last-read-cover {
+    width: 80px;
+    height: 120px;
+    border-radius: var(--radius-md);
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  /* === Library Section === */
+  .library-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+  }
+
+  .section-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  .book-count {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  /* === Novel Grid === */
+  .novel-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+  }
+
+  .novel-grid :global(.novel-card) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    text-decoration: none;
+    animation: fadeInUp var(--transition-normal) both;
+  }
+
+  .novel-grid :global(.cover-img) {
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .novel-grid :global(.card-title) {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text);
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* === Skeleton === */
+  .skeleton-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .skeleton-card::before {
+    content: '';
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    background: linear-gradient(
+      90deg,
+      var(--color-surface) 0%,
+      var(--color-border) 50%,
+      var(--color-surface) 100%
+    );
+    background-size: 200% 100%;
+    border-radius: var(--radius-md);
+    animation: shimmer 1.5s infinite;
+  }
+
+  .skeleton-card::after {
+    content: '';
+    width: 80%;
+    height: 1rem;
+    background: linear-gradient(
+      90deg,
+      var(--color-surface) 0%,
+      var(--color-border) 50%,
+      var(--color-surface) 100%
+    );
+    background-size: 200% 100%;
+    border-radius: var(--radius-sm);
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* === Responsive === */
+  @media (min-width: 640px) {
+    .novel-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .novel-grid {
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--space-lg);
+    }
+  }
+</style>

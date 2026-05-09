@@ -1,0 +1,549 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import BottomNav from '../../components/BottomNav.astro';
+import fs from 'node:fs';
+import path from 'node:path';
+
+export function getStaticPaths() {
+  const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+  const data = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+  return data.novels.map((novel: { slug: string }) => ({
+    params: { slug: novel.slug },
+  }));
+}
+
+const { slug } = Astro.params;
+const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
+---
+
+<Layout
+  title={novel.title}
+  description={novel.synopsis || `Read ${novel.title} online`}
+  canonicalPath={`/novel/${slug}`}
+  ogImage={novel.cover}
+  jsonLd={{
+    '@context': 'https://schema.org',
+    '@type': 'Book',
+    name: novel.title,
+    author: novel.authors.map((a: string) => ({ '@type': 'Person', name: a })),
+    genre: novel.genres,
+    description: novel.synopsis || undefined,
+    image: novel.cover,
+    numberOfPages: novel.totalChapters,
+  }}
+>
+  <main class="detail" id="detail-root" data-slug={slug} data-total={novel.totalChapters}>
+    <header class="detail-header">
+      <a href="/" class="back-btn touch-target" aria-label="Back to library">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </a>
+      <h1>{novel.title}</h1>
+    </header>
+
+    <section class="novel-meta">
+      <div class="cover-large">
+        <img src={novel.cover} alt={novel.title} />
+      </div>
+      <div class="meta-info">
+        <p class="authors">{novel.authors.length > 0 ? novel.authors.join(', ') : 'Unknown Author'}</p>
+        <p class="chapters">{novel.totalChapters} chapters</p>
+        <div class="genres">
+          {novel.genres.length > 0
+            ? novel.genres.map((g: string) => <span class="genre-tag">{g}</span>)
+            : <span class="genre-tag muted">Uncategorized</span>
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="synopsis">
+      <p>{novel.synopsis || 'No synopsis available.'}</p>
+    </section>
+
+    <section class="actions">
+      <a href={`/novel/${slug}/read`} class="btn-primary" id="continue-btn">
+        Start Reading
+      </a>
+      <div class="reading-progress" id="reading-progress">
+        <div class="progress-info">
+          <span id="progress-label">0 / {novel.totalChapters} chapters</span>
+          <span id="progress-percent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter-list-section">
+      <div class="chapter-list-header">
+        <h2>Chapters</h2>
+        <input type="search" id="chapter-search" placeholder="Search by title..." class="chapter-search" />
+      </div>
+      <div class="chapter-tabs" id="chapter-tabs"></div>
+      <div class="chapter-list" id="chapter-list"></div>
+    </section>
+  </main>
+  <BottomNav />
+</Layout>
+
+<script>
+  import { getProgress } from '../../scripts/storage';
+  import { initTheme } from '../../scripts/theme';
+  import { loadAllChapterEntries } from '../../scripts/bundle-loader';
+
+  initTheme();
+
+  const root = document.getElementById('detail-root')!;
+  const slug = root.dataset.slug!;
+
+  const progress = getProgress(slug);
+  const continueBtn = document.getElementById('continue-btn');
+  const lastReadChapter = progress?.lastChapter || 0;
+  const isBundleMode = progress?.bundleMode || false;
+  const bundleSize = progress?.bundleSize || 10;
+
+  // In bundle mode, calculate the range that was last read
+  let lastReadStart = lastReadChapter;
+  let lastReadEnd = lastReadChapter;
+  if (isBundleMode && lastReadChapter > 0) {
+    // lastChapter stores the END of the last bundle, so start = end - size + 1
+    lastReadEnd = lastReadChapter;
+    lastReadStart = Math.max(1, lastReadChapter - bundleSize + 1);
+  }
+
+  if (lastReadChapter > 1 && continueBtn) {
+    if (progress?.bundleMode) {
+      continueBtn.textContent = `Continue Ch. ${lastReadChapter} (Bundle)`;
+      continueBtn.setAttribute('href', `/novel/${slug}/read?bundle=${lastReadChapter}-${lastReadChapter}`);
+    } else {
+      continueBtn.textContent = `Continue Ch. ${lastReadChapter}`;
+      continueBtn.setAttribute('href', `/novel/${slug}/read?ch=${lastReadChapter}`);
+    }
+  }
+
+  // Update progress bar
+  const totalChapters = Number(root.dataset.total || '0');
+  if (lastReadChapter > 0) {
+    const percent = Math.round((lastReadChapter / totalChapters) * 100);
+    const fillEl = document.getElementById('progress-fill');
+    const labelEl = document.getElementById('progress-label');
+    const percentEl = document.getElementById('progress-percent');
+    if (fillEl) fillEl.style.width = `${percent}%`;
+    if (labelEl) labelEl.textContent = `${lastReadChapter} / ${totalChapters} chapters`;
+    if (percentEl) percentEl.textContent = `${percent}%`;
+  }
+
+  interface ChapterEntry {
+    number: number;
+    title: string;
+  }
+
+  function cleanTitle(ch: ChapterEntry): string {
+    // Strip "Chapter N:", "Chapter N -", "Chapter N " prefix (with or without separator)
+    const cleaned = ch.title.replace(/^chapter\s*\d+\s*[:\-–—]?\s*/i, '').replace(/^[:\-–—\s]+/, '').trim();
+    return cleaned || ch.title;
+  }
+
+  let allEntries: ChapterEntry[] = [];
+  let activeTab = 0;
+  let isSearching = false;
+
+  const CHAPTERS_PER_TAB = 100;
+
+  const tabsEl = document.getElementById('chapter-tabs')!;
+  const listEl = document.getElementById('chapter-list')!;
+  const searchEl = document.getElementById('chapter-search') as HTMLInputElement;
+
+  function getTabs(entries: ChapterEntry[]): { label: string; start: number; end: number }[] {
+    if (entries.length === 0) return [];
+    const totalChapters = entries[entries.length - 1].number;
+    const tabs: { label: string; start: number; end: number }[] = [];
+    for (let i = 0; i < Math.ceil(totalChapters / CHAPTERS_PER_TAB); i++) {
+      const start = i * CHAPTERS_PER_TAB + 1;
+      const end = Math.min((i + 1) * CHAPTERS_PER_TAB, totalChapters);
+      tabs.push({ label: `${start}–${end}`, start, end });
+    }
+    return tabs;
+  }
+
+  function renderTabs(): void {
+    const tabs = getTabs(allEntries);
+    if (tabs.length <= 1) {
+      tabsEl.style.display = 'none';
+      return;
+    }
+    tabsEl.innerHTML = tabs.map((tab, i) =>
+      `<button class="tab-btn${i === activeTab ? ' active' : ''}" data-tab="${i}">${tab.label}</button>`
+    ).join('');
+
+    tabsEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.tab-btn') as HTMLElement | null;
+      if (!btn) return;
+      const tabIdx = Number(btn.dataset.tab);
+      if (tabIdx === activeTab) return;
+      activeTab = tabIdx;
+      isSearching = false;
+      searchEl.value = '';
+      renderTabs();
+      renderList();
+    });
+  }
+
+  function chapterItemHtml(ch: ChapterEntry): string {
+    const isInLastRead = isBundleMode
+      ? (ch.number >= lastReadStart && ch.number <= lastReadEnd)
+      : (ch.number === lastReadChapter);
+    const isEndMarker = isBundleMode ? (ch.number === lastReadEnd) : (ch.number === lastReadChapter);
+    const cls = `chapter-item${isInLastRead ? ' last-read' : ''}`;
+    const badge = isEndMarker && lastReadChapter > 0
+      ? `<span class="last-read-badge">${isBundleMode ? `${lastReadStart}–${lastReadEnd}` : 'Last Read'}</span>`
+      : '';
+    const href = isBundleMode
+      ? `/novel/${slug}/read?bundle=${ch.number}-${ch.number}`
+      : `/novel/${slug}/read?ch=${ch.number}`;
+    return `<a href="${href}" class="${cls}"><span class="ch-num">Ch. ${ch.number}</span><span class="ch-title">${cleanTitle(ch)}</span>${badge}</a>`;
+  }
+
+  function renderList(): void {
+    if (isSearching) return;
+    const tabs = getTabs(allEntries);
+    const tab = tabs[activeTab];
+    if (!tab) { listEl.innerHTML = ''; return; }
+
+    const filtered = allEntries.filter(ch => ch.number >= tab.start && ch.number <= tab.end);
+    listEl.innerHTML = filtered.map(chapterItemHtml).join('');
+  }
+
+  function renderSearchResults(query: string): void {
+    const q = query.toLowerCase();
+    const filtered = allEntries.filter(ch =>
+      ch.title.toLowerCase().includes(q) || String(ch.number).includes(q)
+    );
+    listEl.innerHTML = filtered.length > 0
+      ? filtered.map(chapterItemHtml).join('')
+      : '<div class="no-results">No chapters found</div>';
+  }
+
+  searchEl.addEventListener('input', () => {
+    const query = searchEl.value.trim();
+    if (!query) {
+      isSearching = false;
+      tabsEl.style.display = '';
+      renderTabs();
+      renderList();
+      return;
+    }
+    isSearching = true;
+    tabsEl.style.display = 'none';
+    renderSearchResults(query);
+  });
+
+  async function init(): Promise<void> {
+    listEl.innerHTML = '<div class="loading">Loading chapters...</div>';
+    allEntries = await loadAllChapterEntries(slug);
+
+    // Auto-select tab containing last-read chapter
+    if (lastReadChapter > 0) {
+      const tabIdx = Math.floor((lastReadChapter - 1) / CHAPTERS_PER_TAB);
+      const tabs = getTabs(allEntries);
+      if (tabIdx < tabs.length) {
+        activeTab = tabIdx;
+      }
+    }
+
+    renderTabs();
+    renderList();
+
+    // Scroll to last-read chapter
+    if (lastReadChapter > 0) {
+      requestAnimationFrame(() => {
+        const lastReadEl = listEl.querySelector('.chapter-item.last-read') as HTMLElement | null;
+        if (lastReadEl) {
+          lastReadEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      });
+    }
+  }
+
+  init();
+</script>
+
+<style>
+  .detail {
+    padding: var(--space-md);
+    padding-top: calc(var(--safe-top) + var(--space-md));
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .detail-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-lg);
+  }
+
+  .back-btn {
+    color: var(--color-text);
+  }
+
+  .detail-header h1 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .novel-meta {
+    display: flex;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+  }
+
+  .cover-large {
+    width: 140px;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--color-border);
+  }
+
+  .cover-large img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--radius-md);
+  }
+
+  .meta-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    justify-content: center;
+  }
+
+  .authors {
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .chapters {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+  }
+
+  .genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .genre-tag {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    border-radius: var(--radius-full);
+  }
+
+  .genre-tag.muted {
+    background: var(--color-border);
+    color: var(--color-text-muted);
+  }
+
+  .synopsis {
+    margin-bottom: var(--space-lg);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+  }
+
+  .actions {
+    margin-bottom: var(--space-xl);
+  }
+
+  .btn-primary {
+    display: block;
+    width: 100%;
+    padding: var(--space-md);
+    background: var(--color-accent);
+    color: white;
+    text-align: center;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+    min-height: 44px;
+  }
+
+  .btn-primary:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+
+  .reading-progress {
+    margin-top: var(--space-md);
+  }
+
+  .progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-xs);
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 6px;
+    background: var(--color-border);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--color-accent);
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+  }
+
+  .chapter-list-section {
+    margin-bottom: var(--space-2xl);
+  }
+
+  .chapter-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-md);
+    gap: var(--space-sm);
+  }
+
+  .chapter-list-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .chapter-search {
+    flex: 1;
+    max-width: 200px;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.8rem;
+    outline: none;
+  }
+
+  .chapter-search:focus {
+    border-color: var(--color-accent);
+  }
+
+  .chapter-tabs :global(.tab-btn) {
+    display: inline-block;
+    padding: var(--space-xs) var(--space-sm);
+    margin-right: var(--space-xs);
+    margin-bottom: var(--space-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+    min-height: 32px;
+  }
+
+  .chapter-tabs :global(.tab-btn.active) {
+    background: var(--color-accent);
+    color: white;
+    border-color: var(--color-accent);
+  }
+
+  .chapter-tabs :global(.tab-btn:active) {
+    transform: scale(0.95);
+  }
+
+  .chapter-tabs {
+    margin-bottom: var(--space-md);
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: var(--space-xs);
+  }
+
+  .chapter-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chapter-list :global(.chapter-item) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 0.85rem;
+    min-height: 44px;
+  }
+
+  .chapter-list :global(.chapter-item:active) {
+    background: var(--color-surface);
+  }
+
+  .chapter-list :global(.chapter-item.last-read) {
+    background: var(--color-accent-soft);
+    border-left: 3px solid var(--color-accent);
+  }
+
+  .chapter-list :global(.last-read-badge) {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    background: var(--color-accent);
+    color: white;
+    border-radius: var(--radius-full);
+    margin-left: auto;
+  }
+
+  .chapter-list :global(.ch-num) {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    min-width: 48px;
+  }
+
+  .chapter-list :global(.ch-title) {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chapter-list :global(.no-results) {
+    padding: var(--space-lg);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+  }
+
+  .chapter-list :global(.loading) {
+    padding: var(--space-lg);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+  }
+</style>
