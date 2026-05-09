@@ -7,9 +7,7 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   output: 'server',
   adapter: vercel({
-    functionPerRoute: false,
-    includeFiles: [],
-    excludeFiles: ['public/novels/**/*.json', 'public/novels/**/*.json.br'],
+    functionPerRoute: true,
   }),
   site: 'https://novel.example.com',
   integrations: [sitemap()],

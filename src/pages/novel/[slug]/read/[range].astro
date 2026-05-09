@@ -4,24 +4,31 @@ import Layout from '../../../../layouts/Layout.astro';
 import { loadChapterRange, loadChaptersUntilWordCount } from '../../../../utils/bundle-loader-server';
 import { getNovelInfo } from '../../../../utils/bundle-loader-server';
 import type { Chapter } from '../../../../utils/bundle-loader-server';
-import fs from 'node:fs';
-import path from 'node:path';
 
-// SSR mode - no static paths
+const IS_PRODUCTION = import.meta.env.PROD;
+const SITE_URL = import.meta.env.SITE || 'https://novel.example.com';
+
 export function getStaticPaths() {
   return [];
 }
 
 const { slug, range } = Astro.params;
 
-// Validate params
 if (!slug || !range) {
   return Astro.redirect('/');
 }
 
-// Load novel info
-const indexPath = path.join(process.cwd(), 'public/novels/index.json');
-const catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+let catalog: any;
+if (IS_PRODUCTION) {
+  const response = await fetch(`${SITE_URL}/novels/index.json`);
+  catalog = await response.json();
+} else {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const indexPath = path.join(process.cwd(), 'public/novels/index.json');
+  catalog = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+}
+
 const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 
 if (!novel) {
