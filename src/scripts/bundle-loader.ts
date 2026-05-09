@@ -1,3 +1,13 @@
+/**
+ * @deprecated This file is not used for SSR bulk mode.
+ * For server-side bundle loading, see: src/utils/bundle-loader-server.ts
+ * 
+ * This file is kept for:
+ * - Single chapter mode (if still using client-side loading)
+ * - UI enhancements and interactions
+ * - Backward compatibility
+ */
+
 export interface Chapter {
   number: number;
   title: string;
