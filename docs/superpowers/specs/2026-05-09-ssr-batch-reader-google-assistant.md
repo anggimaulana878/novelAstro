@@ -95,11 +95,18 @@ if (range.includes('+')) {
 public/novels/[slug]/
   index.json              # Novel metadata
   info.json               # Bundle information
-  vol-001.json            # Chapters 1-200
-  vol-001.json.br         # Compressed version
-  vol-002.json            # Chapters 201-400
+  vol-001.json            # Chapters 1-200 (decompressed)
+  vol-001.json.br         # Compressed version (original)
+  vol-002.json            # Chapters 201-400 (decompressed)
   ...
 ```
+
+**Bundle Decompression:**
+Bundle files are stored as `.json.br` (Brotli compressed) in the repository. The project's `scripts/decompress-bundles.mjs` automatically decompresses them during:
+- `npm run dev` (via `predev` script)
+- `npm run build` (via `prebuild` script)
+
+The decompressed `.json` files are gitignored and regenerated on each build. Server-side code reads these decompressed `.json` files directly using Node.js `fs` module.
 
 ### Server-Side Loading Strategy
 
@@ -406,10 +413,11 @@ export const READER_CONFIG = {
    
 3. **`astro.config.mjs`**
    - Change `output` to `'server'`
-   - Add adapter (vercel/netlify/node)
+   - Add Vercel adapter: `import vercel from '@astrojs/vercel/serverless'`
+   - Configure adapter in `defineConfig({ adapter: vercel() })`
    
 4. **`package.json`**
-   - Add adapter dependency: `@astrojs/vercel` or `@astrojs/netlify` or `@astrojs/node`
+   - Add adapter dependency: `@astrojs/vercel`
 
 ### Files to Deprecate (Not Delete)
 
