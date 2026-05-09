@@ -119,12 +119,52 @@ if (mode === 'chapter') {
     nextRange = `${nextStart}+${wordCount}`;
   }
 }
+
+// Generate headline for JSON-LD
+const headline = mode === 'chapter'
+  ? `${novel.title} - Chapters ${startChapter}-${endChapter}`
+  : `${novel.title} - ${wordCount} words from Chapter ${startChapter}`;
+
+// Generate article body for JSON-LD (first 5000 chars)
+const articleBody = chapters
+  .map(ch => ch.content.replace(/<[^>]*>/g, ''))
+  .join(' ')
+  .slice(0, 5000);
+
+// JSON-LD structured data
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  name: novel.title,
+  headline,
+  articleBody,
+  inLanguage: primaryLang,
+  isAccessibleForFree: true,
+  speakable: {
+    '@type': 'SpeakableSpecification',
+    cssSelector: [
+      '#reader-content',
+      '#reader-content section',
+      '#reader-content p'
+    ],
+  },
+  accessibilityFeature: [
+    'readingOrder',
+    'structuralNavigation',
+    'alternativeText'
+  ],
+  accessMode: ['textual'],
+  accessModeSufficient: [
+    { '@type': 'ItemList', itemListElement: ['textual'] }
+  ],
+};
 ---
 
 <Layout
-  title={`Reading - ${novel.title}`}
+  title={headline}
   canonicalPath={`/novel/${slug}/read/${range}`}
   description={`Read ${novel.title} chapters online`}
+  jsonLd={jsonLd}
 >
   <div class="reader" id="reader-root">
     <header class="reader-header">
