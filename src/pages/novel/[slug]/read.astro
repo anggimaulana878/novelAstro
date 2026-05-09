@@ -1,4 +1,8 @@
 ---
+// Redirect to single chapter mode (chapter 1)
+const { slug } = Astro.params;
+return Astro.redirect(`/novel/${slug}/read/1`, 301);
+
 import Layout from '../../../layouts/Layout.astro';
 import SettingsSheet from '../../../components/SettingsSheet.astro';
 import fs from 'node:fs';
