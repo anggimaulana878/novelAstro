@@ -155,19 +155,14 @@ async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> 
     const decompressed = brotliDecompressSync(Buffer.from(compressed));
     data = decompressed.toString('utf-8');
   } else {
-    // Development: try decompressed first (for faster dev), fallback to compressed
-    const decompressedPath = path.join(process.cwd(), 'public', 'novels', slug, bundleFile);
-    if (fs.existsSync(decompressedPath)) {
-      data = fs.readFileSync(decompressedPath, 'utf-8');
-    } else {
-      const brPath = path.join(process.cwd(), 'public', 'novels', slug, brFile);
-      if (!fs.existsSync(brPath)) {
-        throw new Error(`Bundle not found: ${brPath}`);
-      }
-      const compressed = fs.readFileSync(brPath);
-      const decompressed = brotliDecompressSync(compressed);
-      data = decompressed.toString('utf-8');
+    // Development: always use .br files and decompress
+    const brPath = path.join(process.cwd(), 'public', 'novels', slug, brFile);
+    if (!fs.existsSync(brPath)) {
+      throw new Error(`Bundle not found: ${brPath}`);
     }
+    const compressed = fs.readFileSync(brPath);
+    const decompressed = brotliDecompressSync(compressed);
+    data = decompressed.toString('utf-8');
   }
   
   const bundle: RawBundle = JSON.parse(data);
