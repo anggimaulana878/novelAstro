@@ -4,11 +4,6 @@ import path from 'node:path';
 import { brotliDecompressSync } from 'node:zlib';
 import { detectLanguage, sanitizeContent } from './content.js';
 
-const IS_PRODUCTION = process.env.VERCEL === '1';
-const SITE_URL = IS_PRODUCTION 
-  ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://novel-astro-inky.vercel.app')
-  : 'http://localhost:4321';
-
 /**
  * Raw chapter data from bundle JSON
  */
@@ -130,29 +125,16 @@ async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> 
   
   let data: string;
   
-  // Always load compressed files (.br) to avoid 250MB Vercel limit
   const brFile = bundleFile.endsWith('.json') ? `${bundleFile}.br` : bundleFile;
+  const brPath = path.join(process.cwd(), 'public', 'novels', slug, brFile);
   
-  if (IS_PRODUCTION) {
-    // Production: fetch compressed file via HTTP
-    const url = `${SITE_URL}/novels/${slug}/${brFile}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Bundle not found: ${url}`);
-    }
-    const compressed = await response.arrayBuffer();
-    const decompressed = brotliDecompressSync(Buffer.from(compressed));
-    data = decompressed.toString('utf-8');
-  } else {
-    // Development: always use .br files and decompress
-    const brPath = path.join(process.cwd(), 'public', 'novels', slug, brFile);
-    if (!fs.existsSync(brPath)) {
-      throw new Error(`Bundle not found: ${brPath}`);
-    }
-    const compressed = fs.readFileSync(brPath);
-    const decompressed = brotliDecompressSync(compressed);
-    data = decompressed.toString('utf-8');
+  if (!fs.existsSync(brPath)) {
+    throw new Error(`Bundle not found: ${brPath}`);
   }
+  
+  const compressed = fs.readFileSync(brPath);
+  const decompressed = brotliDecompressSync(compressed);
+  data = decompressed.toString('utf-8');
   
   const bundle: RawBundle = JSON.parse(data);
   bundleCache.set(cacheKey, bundle);
