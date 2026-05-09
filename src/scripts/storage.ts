@@ -10,6 +10,8 @@ export interface ReaderSettings {
   theme: 'light' | 'dark' | 'system';
   fontSize: 1 | 2 | 3 | 4 | 5;
   fontFamily: 'serif' | 'sans' | 'mono';
+  bundleSize: number;
+  bundleType: 'chapters' | 'wordcount';
 }
 
 type AllProgress = Record<string, NovelProgress>;
@@ -21,6 +23,8 @@ const DEFAULT_SETTINGS: ReaderSettings = {
   theme: 'system',
   fontSize: 3,
   fontFamily: 'sans',
+  bundleSize: 20,
+  bundleType: 'chapters',
 };
 
 function read<T>(key: string): T | null {
@@ -46,12 +50,13 @@ export function getProgress(slug: string): NovelProgress | null {
 
 export function setProgress(slug: string, data: Partial<NovelProgress>): void {
   const all = read<AllProgress>(PROGRESS_KEY) ?? {};
+  const settings = getSettings();
   const existing = all[slug] ?? {
     lastChapter: 1,
     lastReadAt: new Date().toISOString(),
     bundleMode: false,
-    bundleType: 'chapters' as const,
-    bundleSize: 20,
+    bundleType: settings.bundleType,
+    bundleSize: settings.bundleSize,
   };
   all[slug] = { ...existing, ...data, lastReadAt: new Date().toISOString() };
   write(PROGRESS_KEY, all);

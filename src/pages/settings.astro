@@ -61,6 +61,33 @@ export const prerender = true;
         </div>
       </section>
 
+      <!-- Bundle Size -->
+      <section class="setting-group">
+        <h2 class="setting-label">Chapters Per Page</h2>
+        <div class="bundle-size-control">
+          <span class="size-label">10</span>
+          <input type="range" id="bundle-size-slider" min="10" max="100" step="10" value="20" class="slider" aria-label="Chapters per page">
+          <span class="size-label">100</span>
+        </div>
+        <p class="setting-description" id="bundle-size-value">20 chapters per page</p>
+      </section>
+
+      <!-- Bundle Type -->
+      <section class="setting-group">
+        <h2 class="setting-label">Reading Mode</h2>
+        <div class="setting-options" id="bundle-type-options">
+          <button class="option-btn touch-target" data-value="chapters" aria-label="Chapter mode">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span>Chapters</span>
+          </button>
+          <button class="option-btn touch-target" data-value="wordcount" aria-label="Word count mode">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+            <span>Word Count</span>
+          </button>
+        </div>
+        <p class="setting-description">Chapter mode: Fixed number of chapters. Word count: Load until target word count (~15,000 words).</p>
+      </section>
+
       <!-- About -->
       <section class="setting-group">
         <h2 class="setting-label">About</h2>
@@ -81,6 +108,9 @@ export const prerender = true;
   const themeOptions = document.getElementById('theme-options')!;
   const fontSizeSlider = document.getElementById('font-size-slider') as HTMLInputElement;
   const fontOptions = document.getElementById('font-options')!;
+  const bundleSizeSlider = document.getElementById('bundle-size-slider') as HTMLInputElement;
+  const bundleSizeValue = document.getElementById('bundle-size-value')!;
+  const bundleTypeOptions = document.getElementById('bundle-type-options')!;
 
   function syncUI(): void {
     const settings = getSettings();
@@ -93,6 +123,13 @@ export const prerender = true;
 
     fontOptions.querySelectorAll('.option-btn').forEach((btn) => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.value === settings.fontFamily);
+    });
+
+    bundleSizeSlider.value = String(settings.bundleSize);
+    bundleSizeValue.textContent = `${settings.bundleSize} chapters per page`;
+
+    bundleTypeOptions.querySelectorAll('.option-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.value === settings.bundleType);
     });
   }
 
@@ -123,6 +160,23 @@ export const prerender = true;
     setSettings({ fontFamily: value });
     document.documentElement.setAttribute('data-font', value);
     fontOptions.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+
+  // Bundle size
+  bundleSizeSlider.addEventListener('input', () => {
+    const size = parseInt(bundleSizeSlider.value, 10);
+    setSettings({ bundleSize: size });
+    bundleSizeValue.textContent = `${size} chapters per page`;
+  });
+
+  // Bundle type
+  bundleTypeOptions.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.option-btn') as HTMLElement | null;
+    if (!btn) return;
+    const value = btn.dataset.value as 'chapters' | 'wordcount';
+    setSettings({ bundleType: value });
+    bundleTypeOptions.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
   });
 </script>
@@ -239,7 +293,19 @@ export const prerender = true;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     color: var(--color-text);
-    line-height: var(--line-height);
+    line-height: 1.6;
+  }
+
+  .bundle-size-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .setting-description {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
   }
 
   .about-text {

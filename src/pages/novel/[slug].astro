@@ -94,7 +94,7 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
 </Layout>
 
 <script>
-  import { getProgress } from '../../scripts/storage';
+  import { getProgress, getSettings } from '../../scripts/storage';
   import { initTheme } from '../../scripts/theme';
   import { loadAllChapterEntries } from '../../scripts/bundle-loader';
 
@@ -104,10 +104,11 @@ const novel = catalog.novels.find((n: { slug: string }) => n.slug === slug);
   const slug = root.dataset.slug!;
 
   const progress = getProgress(slug);
+  const settings = getSettings();
   const continueBtn = document.getElementById('continue-btn');
   const lastReadChapter = progress?.lastChapter || 0;
   const isBundleMode = progress?.bundleMode || false;
-  const bundleSize = progress?.bundleSize || 10;
+  const bundleSize = progress?.bundleSize || settings.bundleSize;
 
   // In bundle mode, calculate the range that was last read
   let lastReadStart = lastReadChapter;
