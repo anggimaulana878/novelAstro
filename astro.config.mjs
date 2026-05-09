@@ -5,10 +5,11 @@ import sitemap from '@astrojs/sitemap';
 
 // https://astro.build/config
 export default defineConfig({
-  output: 'server',  // Enable SSR
+  output: 'server',
   adapter: vercel({
-    functionPerRoute: false, // Single function to reduce size
-    includeFiles: [], // Don't include bundle files in function
+    functionPerRoute: false,
+    includeFiles: [],
+    excludeFiles: ['public/novels/**/*.json', 'public/novels/**/*.json.br'],
   }),
   site: 'https://novel.example.com',
   integrations: [sitemap()],
