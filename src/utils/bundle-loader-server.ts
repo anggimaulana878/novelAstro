@@ -127,14 +127,13 @@ function findBundleForChapter(info: NovelInfo, chapterNum: number): BundleInfo |
 }
 
 /**
- * Load and parse a bundle file
+ * Load a bundle file
  * @param slug - Novel slug
  * @param bundleFile - Bundle filename (e.g., "vol-001.json")
  * @returns Parsed bundle data
  */
 async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> {
   const cacheKey = `${slug}/${bundleFile}`;
-  
   const cached = bundleCache.get(cacheKey);
   if (cached) {
     return cached;
@@ -142,8 +141,11 @@ async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> 
   
   let data: string;
   
+  // Always load compressed files (.br) to avoid 250MB Vercel limit
+  const brFile = bundleFile.endsWith('.json') ? `${bundleFile}.br` : bundleFile;
+  
   if (IS_PRODUCTION) {
-    const brFile = bundleFile.endsWith('.json') ? `${bundleFile}.br` : bundleFile;
+    // Production: fetch compressed file via HTTP
     const url = `${SITE_URL}/novels/${slug}/${brFile}`;
     const response = await fetch(url);
     if (!response.ok) {
@@ -153,11 +155,12 @@ async function loadBundle(slug: string, bundleFile: string): Promise<RawBundle> 
     const decompressed = brotliDecompressSync(Buffer.from(compressed));
     data = decompressed.toString('utf-8');
   } else {
+    // Development: try decompressed first (for faster dev), fallback to compressed
     const decompressedPath = path.join(process.cwd(), 'public', 'novels', slug, bundleFile);
     if (fs.existsSync(decompressedPath)) {
       data = fs.readFileSync(decompressedPath, 'utf-8');
     } else {
-      const brPath = `${decompressedPath}.br`;
+      const brPath = path.join(process.cwd(), 'public', 'novels', slug, brFile);
       if (!fs.existsSync(brPath)) {
         throw new Error(`Bundle not found: ${brPath}`);
       }

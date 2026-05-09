@@ -6,10 +6,9 @@
     "node": "22.x"
   },
   "scripts": {
-    "prebuild": "node scripts/decompress-bundles.mjs",
     "predev": "node scripts/decompress-bundles.mjs",
     "dev": "astro dev",
-    "build": "astro build && node scripts/copy-public-to-vercel.mjs",
+    "build": "astro build && node scripts/copy-compressed-to-vercel.mjs",
     "preview": "astro preview",
     "astro": "astro"
   },
